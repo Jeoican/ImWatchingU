@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.socialwatch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <!-- 改成你本机的项目绝对路径 -->
+    <string>/path/to/ImWatchingU/run.sh</string>
+  </array>
+  <!-- 巡检间隔（秒）。3600 = 每小时一次 -->
+  <key>StartInterval</key><integer>3600</integer>
+  <key>StandardOutPath</key><string>/path/to/ImWatchingU/data/watch.log</string>
+  <key>StandardErrorPath</key><string>/path/to/ImWatchingU/data/watch.err.log</string>
+  <key>RunAtLoad</key><true/>
+</dict>
+</plist>

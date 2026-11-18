@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>社媒监控 · 实时看板</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📊</text></svg>">
+<style>
+:root{
+  --bg:#f7f7f5; --card:#fff; --line:#e6e6e2; --text:#1c1c1a; --muted:#7a7a74;
+  --add:#c0392b; --del:#2e7d4f; --accent:#2f5bd7; --warn:#b7791f;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 6px 20px rgba(0,0,0,.05);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
+  font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+
+header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;
+  flex-wrap:wrap;margin-bottom:22px}
+h1{font-size:21px;font-weight:600;letter-spacing:-.3px}
+.sub{color:var(--muted);font-size:12.5px;margin-top:5px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle}
+.dot.ok{background:#38a169}.dot.err{background:#c0392b}.dot.idle{background:#c0c0ba}
+.btn{border:1px solid var(--line);background:#fff;color:var(--text);border-radius:8px;
+  padding:7px 14px;font-size:13px;cursor:pointer;font-family:inherit;transition:.15s}
+.btn:hover{border-color:#c9c9c3;background:#fafaf9}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#2549b0}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.sm{padding:3px 9px;font-size:12px;border-radius:6px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+.pills{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px}
+.pill{font-size:11.5px;color:var(--muted);border:1px solid var(--line);background:#fff;
+  border-radius:20px;padding:2px 10px;display:inline-flex;align-items:center;gap:5px}
+.pill.clickable{cursor:pointer;transition:.15s}
+.pill.clickable:hover{border-color:var(--accent);color:var(--text);background:#f5f8ff}
+
+.grid{display:grid;gap:16px;grid-template-columns:repeat(4,minmax(0,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 18px 16px;
+  box-shadow:var(--shadow);display:flex;flex-direction:column}
+.card.clickable{cursor:pointer}
+.card.clickable:hover{border-color:#d0d0ca}
+.card h2{font-size:15px;font-weight:600;display:flex;align-items:center;gap:7px;flex-wrap:nowrap}
+.card h2 .cname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card h2 .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);
+  border-radius:20px;padding:1px 9px;font-weight:400;flex:0 0 auto}
+.card h2 .tag.off{color:#b9b9b3}
+.card h2 .sp{margin-left:auto;display:flex;gap:6px;align-items:center}
+.card h2 .exp{font-size:10px;color:var(--muted);display:inline-block;margin-left:auto;flex:0 0 auto}
+
+/* 头像 / 封面 */
+.avatar{width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto;
+  border:1px solid var(--line);background:#f2f2f0}
+.avatar.ph{display:inline-flex;align-items:center;justify-content:center;
+  font-size:15px;color:var(--muted);background:#f2f2f0}
+.detail-avatar{width:52px;height:52px;font-size:24px}
+.plcover{width:38px;height:38px;border-radius:7px;object-fit:cover;flex:0 0 auto;
+  border:1px solid var(--line);background:#f2f2f0}
+
+/* 展开后的歌单明细 */
+.plist{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.plrow2{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);align-items:flex-start}
+.plrow2:last-child{border-bottom:none}
+.plrow2 .nm{font-weight:500;font-size:13px;min-width:150px;flex:0 0 auto}
+.plrow2 .cnt{font-size:11.5px;color:var(--muted);flex:0 0 auto}
+.plrow2 .chg{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.plrow2 .chg .line2{font-size:12px;display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}
+.plrow2 .chg .ar{font-size:10.5px;padding:0 5px;border-radius:4px;border:1px solid var(--line);flex:0 0 auto}
+.plrow2 .chg .ar.add{color:var(--add);border-color:#f0cfc9}
+.plrow2 .chg .ar.del{color:var(--del);border-color:#c9e0d2}
+.plrow2 .sng{color:var(--text)}
+.plrow2 .who{color:var(--muted);font-size:11.5px}
+
+.headline{display:flex;gap:26px;margin:14px 0 4px;flex-wrap:wrap}
+.hl .n{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
+.hl .l{font-size:11.5px;color:var(--muted)}
+
+.stats{display:flex;gap:20px;margin:12px 0 2px;flex-wrap:wrap}
+.stat .n{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.stat .n.add{color:var(--add)}.stat .n.del{color:var(--del)}
+.stat .l{font-size:11.5px;color:var(--muted)}
+
+.events{margin-top:14px;border-top:1px solid var(--line);padding-top:10px;
+  max-height:250px;overflow-y:auto}
+.ev{display:flex;gap:9px;padding:5px 0;font-size:12.5px;align-items:baseline}
+.ev .t{color:var(--muted);font-variant-numeric:tabular-nums;font-size:11.5px;flex:0 0 76px}
+.ev .tg{flex:0 0 auto;font-size:10.5px;padding:0 6px;border-radius:4px;border:1px solid var(--line)}
+.ev .tg.add{color:var(--add);border-color:#f0cfc9;background:#fdf6f5}
+.ev .tg.del{color:var(--del);border-color:#c9e0d2;background:#f4faf6}
+.ev .bd{flex:1;min-width:0;word-break:break-word}
+.ev .meta{color:var(--muted);font-size:11.5px}
+.empty{color:var(--muted);font-size:12.5px;padding:10px 0}
+
+h3.sec{font-size:13px;font-weight:600;color:var(--muted);margin:30px 0 10px;
+  letter-spacing:.3px;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.fold{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
+  margin:30px 0 10px;width:100%}
+.fold h3{margin:0}
+.fold .arrow{font-size:10px;color:var(--muted);transition:transform .18s;display:inline-block}
+.fold.open .arrow{transform:rotate(90deg)}
+.fold .cnt{font-size:11.5px;color:var(--muted);font-weight:400;text-transform:none}
+.fold .line{flex:1;height:1px;background:var(--line)}
+.foldpanel{display:none}
+.foldpanel.open{display:block}
+
+/* 歌单变化 */
+.plgroup{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:14px 16px;box-shadow:var(--shadow);margin-bottom:10px}
+.plhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;cursor:pointer}
+.plhead .nm{font-weight:600;font-size:14px}
+.plhead .tg{font-size:10.5px;padding:1px 7px;border-radius:5px;border:1px solid var(--line)}
+.plhead .tg.add{color:var(--add);border-color:#f0cfc9;background:#fdf6f5}
+.plhead .tg.del{color:var(--del);border-color:#c9e0d2;background:#f4faf6}
+.plhead .when{font-size:11.5px;color:var(--muted);margin-left:auto}
+.plbody{display:none;margin-top:11px;padding-top:11px;border-top:1px solid var(--line)}
+.plgroup.open .plbody{display:block}
+.plrow{display:flex;gap:9px;padding:4px 0;font-size:12.5px;align-items:baseline}
+.plrow .ar{flex:0 0 auto;font-size:10.5px;padding:0 6px;border-radius:4px;border:1px solid var(--line)}
+.plrow .ar.add{color:var(--add);border-color:#f0cfc9}
+.plrow .ar.del{color:var(--del);border-color:#c9e0d2}
+.songs{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px}
+.song{font-size:12px;background:#f5f5f3;border:1px solid var(--line);border-radius:6px;padding:2px 8px}
+.song.add{border-color:#f0cfc9;background:#fdf6f5}
+.song.del{border-color:#c9e0d2;background:#f4faf6;text-decoration:line-through;color:var(--muted)}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:14px 16px;box-shadow:var(--shadow)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:500;font-size:11.5px}
+tr:last-child td{border-bottom:none}
+td.st.ok{color:var(--del)}td.st.err{color:var(--add)}
+
+/* 目标管理 */
+.mgr{display:grid;gap:10px}
+.mrow{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--line);
+  border-radius:9px;background:#fcfcfb;flex-wrap:wrap}
+.mrow .nm{font-weight:500;flex:1;min-width:140px}
+.mrow .id{color:var(--muted);font-size:11.5px;font-family:ui-monospace,Menlo,monospace}
+.mrow .op{display:flex;gap:6px;align-items:center}
+input,select{font-family:inherit;font-size:13px;padding:6px 9px;border:1px solid var(--line);
+  border-radius:7px;background:#fff;color:var(--text);outline:none}
+input:focus,select:focus{border-color:var(--accent)}
+.fld{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--muted)}
+.inputrow{display:flex;gap:6px;align-items:center}
+.inputrow input{flex:1;min-width:0}
+.inputrow .btn{flex:0 0 auto;white-space:nowrap}
+.addform{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  align-items:end;margin-top:12px;padding-top:14px;border-top:1px dashed var(--line)}
+.msg{padding:8px 12px;border-radius:8px;font-size:12.5px;margin-top:10px;display:none}
+.msg.show{display:block}
+.msg.ok{background:#f0f8f3;color:#22664a;border:1px solid #c9e0d2}
+.msg.err{background:#fdf3f2;color:#8f2a20;border:1px solid #f0cfc9}
+
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(70px);
+  background:#1c1c1a;color:#fff;padding:9px 18px;border-radius:9px;font-size:13px;
+  opacity:0;transition:.25s;pointer-events:none;z-index:99}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* 编辑弹窗 */
+.editform{display:grid;gap:12px;padding:18px 20px}
+.editform .row2{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.chkgroup{display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding:2px 0}
+.chkgroup label{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
+.chkgroup input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
+.modalfoot{display:flex;gap:8px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--line)}
+.editwarn{font-size:12px;color:var(--muted);line-height:1.6;padding:9px 11px;background:#fafaf8;
+  border:1px solid var(--line);border-radius:8px}
+
+/* 变更记录弹窗 */
+.detailbody{padding:8px 20px 20px;overflow-y:auto}
+.detailbody .events{margin-top:4px;border-top:none;padding-top:4px}
+.detailbody h3.sec{margin:20px 0 6px}
+
+/* 登录弹窗 */
+.mask{position:fixed;inset:0;background:rgba(20,20,18,.55);backdrop-filter:blur(3px);
+  display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+.mask.show{display:flex}
+.modal{background:#fff;border-radius:14px;width:min(980px,100%);max-height:92vh;
+  display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.28)}
+.modal header{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.modal header h3{font-size:15px;font-weight:600;margin:0;flex:1;text-transform:none;letter-spacing:0}
+.xbtn{border:none;background:transparent;font-size:20px;color:var(--muted);cursor:pointer;
+  line-height:1;padding:2px 6px;border-radius:6px}
+.xbtn:hover{background:#f2f2f0;color:var(--text)}
+.modal .body{display:grid;grid-template-columns:300px 1fr;gap:0;min-height:0;flex:1}
+.platlist{padding:14px;border-right:1px solid var(--line);overflow-y:auto;background:#fcfcfb}
+.platbtn{display:block;width:100%;text-align:left;border:1px solid var(--line);background:#fff;
+  border-radius:9px;padding:10px 12px;margin-bottom:8px;cursor:pointer;font-family:inherit;font-size:13px}
+.platbtn:hover{border-color:#c9c9c3}
+.platbtn.active{border-color:var(--accent);background:#f5f8ff}
+.platbtn .nm{font-weight:500;display:block}
+.platbtn .st{font-size:11.5px;color:var(--muted);display:block;margin-top:2px}
+.platbtn .st.on{color:var(--del)}
+.viewer{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:10px;align-items:center}
+.shotwrap{width:100%;background:#f2f2f0;border:1px solid var(--line);border-radius:10px;
+  overflow:hidden;min-height:300px;display:flex;align-items:center;justify-content:center}
+.shotwrap img{width:100%;display:block}
+.shotwrap .ph{color:var(--muted);font-size:13px;padding:60px 20px;text-align:center}
+.lstatus{display:flex;align-items:center;gap:9px;font-size:13px;width:100%}
+.lstatus .dot{width:8px;height:8px;border-radius:50%}
+.lstatus.ok{color:var(--del)}
+.lstatus.err{color:var(--add)}
+.lstatus.idle{color:var(--muted)}
+.lactions{display:flex;gap:8px;width:100%;align-items:center}
+.lhint{font-size:12px;color:var(--muted);line-height:1.7}
+@media(max-width:760px){
+  .modal .body{grid-template-columns:1fr}
+  .platlist{border-right:none;border-bottom:1px solid var(--line);display:flex;gap:8px;overflow-x:auto}
+  .platbtn{min-width:130px;margin-bottom:0}
+}
+@media(max-width:1100px){
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:640px){
+  .wrap{padding:18px 12px 60px}
+  .grid{grid-template-columns:1fr}
+  .ev .t{flex:0 0 66px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>社媒监控 · 实时看板</h1>
+      <div class="sub" id="meta">加载中…</div>
+    </div>
+    <div class="row">
+      <button class="btn" id="btnReload">刷新</button>
+      <button class="btn primary" id="btnCheck">立即巡检</button>
+    </div>
+  </header>
+
+  <div class="pills" id="pills"></div>
+
+  <div class="grid" id="cards"></div>
+
+  <h3 class="sec">目标管理</h3>
+  <div class="panel">
+    <div class="mgr" id="mgr"></div>
+    <div class="addform">
+      <label class="fld">平台
+        <select id="fPlat">
+          <option value="netease">网易云音乐</option>
+          <option value="weibo">微博</option>
+          <option value="douyin">抖音</option>
+          <option value="xiaohongshu">小红书</option>
+        </select>
+      </label>
+      <div class="fld">账号 ID（可直接粘贴主页链接）
+        <div class="inputrow">
+          <input id="fId" placeholder="粘贴主页链接自动识别，或填 uid / sec_uid">
+          <button class="btn sm" id="btnResolve" type="button" title="从主页链接识别平台和 ID">识别</button>
+        </div>
+      </div>
+      <label class="fld">备注名
+        <input id="fName" placeholder="选填">
+      </label>
+      <label class="fld">精确到人
+        <select id="fPeople">
+          <option value="">不记录</option>
+          <option value="following">关注列表</option>
+          <option value="followers">粉丝列表</option>
+          <option value="following,followers">关注 + 粉丝</option>
+        </select>
+      </label>
+      <button class="btn primary" id="btnAdd">添加目标</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <h3 class="sec" id="plSec" style="display:none">歌单变化</h3>
+  <div id="playlists"></div>
+
+  <div class="fold" id="runsFold">
+    <span class="arrow">▶</span>
+    <h3>最近巡检记录</h3>
+    <span class="cnt" id="runsCnt"></span>
+    <span class="line"></span>
+  </div>
+  <div class="foldpanel" id="runsPanel">
+    <div class="panel" style="padding:12px 14px">
+      <table id="runs"></table>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="mask" id="detailMask">
+  <div class="modal" style="width:min(680px,100%)">
+    <header>
+      <h3 id="detailTitle">变更记录</h3>
+      <button class="xbtn" id="detailClose" title="关闭">×</button>
+    </header>
+    <div class="detailbody" id="detailBody"></div>
+  </div>
+</div>
+
+<div class="mask" id="editMask">
+  <div class="modal" style="width:min(620px,100%)">
+    <header>
+      <h3 id="editTitle">编辑目标</h3>
+      <button class="xbtn" id="editClose" title="关闭">×</button>
+    </header>
+    <div class="editform">
+      <div class="row2">
+        <label class="fld">平台
+          <select id="ePlat">
+            <option value="netease">网易云音乐</option>
+            <option value="weibo">微博</option>
+            <option value="douyin">抖音</option>
+            <option value="xiaohongshu">小红书</option>
+          </select>
+        </label>
+        <div class="fld">账号 ID（可粘贴主页链接）
+          <div class="inputrow">
+            <input id="eId" placeholder="粘贴主页链接自动识别，或填 uid / sec_uid">
+            <button class="btn sm" id="btnEResolve" type="button" title="从主页链接识别平台和 ID">识别</button>
+          </div>
+        </div>
+      </div>
+      <label class="fld">备注名
+        <input id="eName" placeholder="显示在页面上的名字">
+      </label>
+      <div class="fld">精确到人（关注 / 粉丝列表）
+        <div class="chkgroup">
+          <label><input type="checkbox" id="eFollow">关注列表（TA 关注了谁）</label>
+          <label><input type="checkbox" id="eFans">粉丝列表（谁关注了 TA）</label>
+        </div>
+      </div>
+      <label class="fld">关注列表最多读取人数
+        <input id="eMax" type="number" min="1" max="5000" value="500">
+      </label>
+      <div class="fld">状态
+        <div class="chkgroup">
+          <label><input type="checkbox" id="eEnabled" checked>启用该目标</label>
+        </div>
+      </div>
+      <div class="editwarn">
+        修改账号 ID 后，历史数据仍保留在旧 ID 下；新 ID 会从零开始建立基线。
+      </div>
+      <div class="msg" id="editMsg"></div>
+    </div>
+    <div class="modalfoot">
+      <button class="btn" id="editCancel">取消</button>
+      <button class="btn primary" id="editSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="mask" id="loginMask">
+  <div class="modal">
+    <header>
+      <h3>平台登录</h3>
+      <span style="font-size:12px;color:var(--muted)">在浏览器里扫码，登录态会保存到服务器并自动用于采集</span>
+      <button class="xbtn" id="loginClose" title="关闭">×</button>
+    </header>
+    <div class="body">
+      <div class="platlist" id="platList"></div>
+      <div class="viewer">
+        <div class="shotwrap" id="shotWrap">
+          <div class="ph">选择左侧平台后点击「开始登录」</div>
+        </div>
+        <div class="lstatus idle" id="lStatus"><span class="dot idle"></span><span>未开始</span></div>
+        <div class="lactions">
+          <button class="btn primary" id="btnLoginStart">开始登录</button>
+          <button class="btn" id="btnLoginCancel">取消</button>
+          <button class="btn" id="btnLoginRefresh">刷新画面</button>
+          <button class="btn" id="btnLoginRetry" style="display:none">重新登录</button>
+        </div>
+        <div class="lhint" id="loginHint"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PLAT_LABEL = {netease:"网易云音乐",weibo:"微博",douyin:"抖音",xiaohongshu:"小红书"};
+const LOGIN_KEY = {netease:"网易云",weibo:"微博",douyin:"抖音",xiaohongshu:"小红书"};
+function esc(s){return (s??"").toString().replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+// 走后端图片代理，绕开第三方防盗链；无后端时（本地直接打开）退回原图直连
+function imgUrl(url){
+  if(!url) return "";
+  return `/api/img?url=${encodeURIComponent(url)}`;
+}
+// 头像 HTML：有地址用图片，加载失败或无地址降级为首字母圆形占位
+function avatarHTML(url,name,extraClass){
+  const cls=`avatar ${extraClass||""}`;
+  const letter=esc((name||"?").slice(0,1));
+  if(!url) return `<span class="${cls} ph">${letter}</span>`;
+  return `<img class="${cls}" src="${esc(imgUrl(url))}" alt="" `+
+    `data-letter="${letter}" onerror="imgFallback(this)">`;
+}
+function imgFallback(img){
+  const ph=document.createElement("span");
+  ph.className=img.className+" ph";
+  ph.textContent=img.dataset.letter||"?";
+  img.replaceWith(ph);
+}
+// 歌单封面 HTML：无地址或不加载则不占位，避免空框
+function coverHTML(url){
+  if(!url) return "";
+  return `<img class="plcover" src="${esc(imgUrl(url))}" alt="" `+
+    `onerror="this.style.display='none'">`;
+}
+function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"),2200)}
+function showMsg(text,ok){const m=document.getElementById("msg");m.textContent=text;
+  m.className="msg show "+(ok?"ok":"err");setTimeout(()=>m.classList.remove("show"),4000)}
+
+async function api(path,opts){
+  const r=await fetch(path,{headers:{"Content-Type":"application/json"},...opts});
+  return r.json();
+}
+
+function fmtTime(ts){const d=new Date(ts*1000);
+  const p=n=>String(n).padStart(2,"0");
+  return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`}
+
+function eventHTML(e){
+  const tagMap={track_added:["新增","add"],track_removed:["移除","del"],
+    playlist_added:["新歌单","add"],playlist_removed:["歌单移除","del"],
+    count_up:["上升","add"],count_down:["下降","del"],
+    person_follow_added:["关注","add"],person_follow_removed:["取关","del"],
+    person_fan_added:["新粉丝","add"],person_fan_removed:["掉粉","del"]};
+  const [tag,cls]=tagMap[e.event_type]||["变动",""];
+  const ts=fmtTime(e.detected_at);
+  const x=e.item_extra||{};
+  if(e.event_type==="track_added"||e.event_type==="track_removed"){
+    const art=x.artists?`<span class="meta"> — ${esc(x.artists)}</span>`:"";
+    const alb=x.album?`<span class="meta">《${esc(x.album)}》</span>`:"";
+    return `<div class="ev"><span class="t">${ts}</span><span class="tg ${cls}">${tag}</span>
+      <span class="bd">${esc(e.item_name)}${art}${alb}<span class="meta"> · ${esc(e.scope_name||"")}</span></span></div>`;
+  }
+  if(e.event_type.startsWith("count")){
+    const sign=e.delta>0?"+":"";
+    return `<div class="ev"><span class="t">${ts}</span><span class="tg ${cls}">${tag}</span>
+      <span class="bd">${esc(e.item_name)} ${x.before} → <b>${x.after}</b>
+      <span class="meta"> (${sign}${e.delta})</span></span></div>`;
+  }
+  if(e.event_type.startsWith("person_")){
+    const dir=e.event_type.includes("follow_")?"关注":"粉丝";
+    const verb=e.event_type.includes("added")?"新增":"移除";
+    return `<div class="ev"><span class="t">${ts}</span><span class="tg ${cls}">${tag}</span>
+      <span class="bd">${dir}·${verb}：${esc(e.item_name)}
+      <span class="meta">(id ${esc(e.item_id)})</span></span></div>`;
+  }
+  return `<div class="ev"><span class="t">${ts}</span><span class="tg ${cls}">${tag}</span>
+    <span class="bd">${esc(e.item_name||e.item_id)}</span></div>`;
+}
+
+let STATE=null;
+
+function renderPills(s){
+  const p=document.getElementById("pills");
+  const parts=[];
+  parts.push(`<span class="pill"><span class="dot ok"></span>${s.targets?s.targets.length:0} 个目标</span>`);
+  const lg=s.login||{};
+  if(lg.error){parts.push(`<span class="pill"><span class="dot err"></span>登录态检测失败</span>`);}
+  else if(lg._checking){
+    parts.push(`<span class="pill"><span class="dot idle"></span>登录态检测中…</span>`);
+  }
+  else{
+    Object.keys(LOGIN_KEY).forEach(k=>{
+      const on=lg[k];
+      const cls=on?"ok":"idle";
+      const note=on?"已登录":(k==="netease"||k==="weibo"||k==="douyin"?"游客可读":"需登录");
+      parts.push(`<span class="pill clickable" data-login="${k}" title="点击登录 ${LOGIN_KEY[k]}"><span class="dot ${cls}"></span>${LOGIN_KEY[k]} ${note}</span>`);
+    });
+  }
+  const running=s.check&&s.check.running;
+  parts.push(`<span class="pill"><span class="dot ${running?"ok":"idle"}"></span>${running?"巡检进行中":"空闲"}</span>`);
+  parts.push(`<span class="pill">间隔 ${s.config?s.config.poll_interval_minutes:60} 分钟</span>`);
+  p.innerHTML=parts.join("");
+}
+
+// 变更记录（含歌单增删）HTML，供详情弹窗复用
+function eventsHTML(c){
+  return c.events&&c.events.length ? c.events.map(eventHTML).join("")
+    :`<div class="empty">暂无变更记录（首次采集只建立基线）。</div>`;
+}
+
+// 歌单变更明细 HTML，供详情弹窗复用
+function playlistDetailHTML(c){
+  const pls=c.playlists||[];
+  if(!pls.length) return "";
+  return `<div class="plist">${pls.map(pl=>{
+    const addRows=(pl.added||[]).map(n=>`<div class="line2"><span class="ar add">新增</span>
+      <span class="sng">${esc(n)}</span></div>`).join("");
+    const remRows=(pl.removed||[]).map(n=>`<div class="line2"><span class="ar del">移除</span>
+      <span class="sng">${esc(n)}</span></div>`).join("");
+    const evRows=(pl.events||[]).slice(0,20).map(e=>{
+      const x=e.item_extra||{};
+      const ar=e.event_type==="track_added"?"add":"del";
+      const tag=e.event_type==="track_added"?"新增":"移除";
+      const ts=new Date(e.detected_at*1000);
+      const p2=n=>String(n).padStart(2,"0");
+      const when=`${p2(ts.getMonth()+1)}-${p2(ts.getDate())} ${p2(ts.getHours())}:${p2(ts.getMinutes())}`;
+      const who=x.artists?` <span class="who">${esc(x.artists)}</span>`:"";
+      return `<div class="line2"><span class="ar ${ar}">${tag}</span>
+        <span class="sng">${esc(e.item_name||e.item_id)}</span>${who}
+        <span class="who">${when}</span></div>`;
+    }).join("");
+    const body = evRows || (addRows||remRows
+      ? addRows+remRows
+      : `<div class="empty" style="font-size:12px">暂无增删记录</div>`);
+    return `<div class="plrow2">
+      ${coverHTML(pl.cover)}<span class="nm">${esc(pl.name)}</span>
+      <span class="cnt">${pl.track_count} 首</span>
+      <div class="chg">${body}</div>
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function renderCards(s){
+  const wrap=document.getElementById("cards");
+  if(!s.cards||!s.cards.length){
+    wrap.innerHTML=`<div class="panel"><div class="empty">还没有监控目标。在下方「目标管理」添加，或编辑 config.yaml 后重启容器。</div></div>`;
+    return;
+  }
+  wrap.innerHTML=s.cards.map(c=>{
+    const off=c.enabled?"":"<span class='tag off'>已停用</span>";
+    const head=c.head?`<div class="headline">${Object.entries(c.head).map(([k,v])=>
+      `<div class="hl"><div class="n">${Number(v).toLocaleString()}</div><div class="l">当前${esc(k)}</div></div>`).join("")}</div>`:"";
+    const stats=c.stats.map(x=>`<div class="stat"><div class="n ${x[2]}">${esc(x[1])}</div>
+      <div class="l">${esc(x[0])} · 近7天</div></div>`).join("");
+    return `<div class="card clickable" data-card="${esc(c.key)}" title="点击查看变更记录">
+      <h2>${avatarHTML(c.avatar,c.name)}<span class="cname">${esc(c.name)}</span><span class="tag">${esc(c.platform)}</span>${off}
+        <span class="exp">▶</span></h2>
+      ${head}
+      <div class="stats">${stats}</div>
+    </div>`;
+  }).join("");
+}
+
+// 打开变更记录弹窗
+function openDetail(key){
+  const c=(STATE&&STATE.cards||[]).find(x=>x.key===key);
+  if(!c){toast("数据不存在");return;}
+  document.getElementById("detailTitle").textContent=`变更记录 · ${c.name}`;
+  const plDetail=playlistDetailHTML(c);
+  const profile=`<div class="row" style="gap:12px;padding:4px 0 2px">
+    ${avatarHTML(c.avatar,c.name,"detail-avatar")}
+    <div><div style="font-weight:600;font-size:15px">${esc(c.name)}</div>
+    <div style="font-size:12px;color:var(--muted)">${esc(c.platform)}</div></div></div>`;
+  document.getElementById("detailBody").innerHTML=
+    profile+
+    `<h3 class="sec" style="margin-top:0">变更记录</h3>
+     <div class="events" style="max-height:none">${eventsHTML(c)}</div>`+
+    (plDetail?`<h3 class="sec">歌单变更记录</h3>${plDetail}`:"");
+  document.getElementById("detailMask").classList.add("show");
+}
+
+function renderRuns(s){
+  const rt=document.getElementById("runs");
+  const rows=s.runs||[];
+  rt.innerHTML=`<tr><th>时间</th><th>状态</th><th>目标</th><th>信息</th></tr>`+
+   (rows.length?rows.map(r=>`<tr><td>${esc(r.time)}</td>
+     <td class="st ${r.status==="ok"?"ok":"err"}">${esc(r.status)}</td>
+     <td>${esc(r.target)}</td><td>${esc(r.message)}</td></tr>`).join("")
+   :`<tr><td colspan="4" class="empty">尚未运行</td></tr>`);
+  const cnt=document.getElementById("runsCnt");
+  if(cnt) cnt.textContent = rows.length ? `${rows.length} 条` : "";
+}
+
+function renderPlaylists(s){
+  const box=document.getElementById("playlists");
+  const sec=document.getElementById("plSec");
+  const gs=s.playlists||[];
+  if(!gs.length){
+    box.innerHTML="";
+    sec.style.display="none";
+    return;
+  }
+  sec.style.display="";
+  sec.textContent=`歌单变化（近30天，${gs.length} 个歌单）`;
+  box.innerHTML = gs.map((g,idx)=>{
+    const tot=g.added.length+g.removed.length;
+    const tags=[];
+    if(g.added.length) tags.push(`<span class="tg add">+${g.added.length}</span>`);
+    if(g.removed.length) tags.push(`<span class="tg del">-${g.removed.length}</span>`);
+    if(g.playlist_added) tags.push(`<span class="tg add">新歌单</span>`);
+    if(g.playlist_removed) tags.push(`<span class="tg del">歌单移除</span>`);
+    const added=g.added.length?`<div class="plrow"><span class="ar add">新增</span>
+      <div class="songs">${g.added.map(n=>`<span class="song add">${esc(n)}</span>`).join("")}</div></div>`:"";
+    const removed=g.removed.length?`<div class="plrow"><span class="ar del">移除</span>
+      <div class="songs">${g.removed.map(n=>`<span class="song del">${esc(n)}</span>`).join("")}</div></div>`:"";
+    const when=g.last_at?new Date(g.last_at*1000).toLocaleString("zh-CN",{hour12:false}):"";
+    return `<div class="plgroup open" data-pl="${idx}">
+      <div class="plhead">
+        <span class="nm">${esc(g.name)}</span>
+        ${tags.join("")}
+        <span class="when">${esc(g.target)} · ${esc(when)}</span>
+      </div>
+      <div class="plbody">${added}${removed || (tot===0?'<div class="empty">本周期无歌曲增删</div>':'')}</div>
+    </div>`;
+  }).join("");
+}
+
+// 点击歌单卡片展开/收起
+document.getElementById("playlists").addEventListener("click", e=>{
+  const h=e.target.closest(".plhead");
+  if(!h) return;
+  h.parentElement.classList.toggle("open");
+});
+
+// 巡检记录折叠（默认收起）
+document.getElementById("runsFold").addEventListener("click", ()=>{
+  const f=document.getElementById("runsFold");
+  const p=document.getElementById("runsPanel");
+  f.classList.toggle("open");
+  p.classList.toggle("open");
+});
+
+function renderMgr(s){
+  const m=document.getElementById("mgr");
+  const ts=s.targets||[];
+  if(!ts.length){m.innerHTML=`<div class="empty">还没有配置任何监控目标。</div>`;return;}
+  m.innerHTML=ts.map(t=>{
+    const people=(t.options&&t.options.people)||[];
+    const pt=people.length?people.map(p=>p==="following"?"关注":"粉丝").join("/"):"";
+    return `<div class="mrow">
+      <span class="nm">${esc(t.name)}</span>
+      <span class="id">${esc(PLAT_LABEL[t.platform]||t.platform)} · ${esc(t.id)}</span>
+      ${pt?`<span class="id">精确到人：${esc(pt)}</span>`:""}
+      <span class="id">${t.enabled?"运行中":"已停用"}</span>
+      <span class="op">
+        <button class="btn sm" data-act="check" data-key="${esc(t.platform)}:${esc(t.id)}" data-name="${esc(t.name)}">巡检</button>
+        <button class="btn sm" data-act="edit" data-idx="${t.index}">编辑</button>
+        <button class="btn sm" data-act="toggle" data-idx="${t.index}">${t.enabled?"停用":"启用"}</button>
+        <button class="btn sm" data-act="del" data-idx="${t.index}">删除</button>
+      </span></div>`;
+  }).join("");
+}
+
+function render(s){
+  STATE=s;
+  const st=new Date(s.server_time*1000);
+  const p=n=>String(n).padStart(2,"0");
+  document.getElementById("meta").innerHTML=
+    `<span>数据更新于 ${p(st.getHours())}:${p(st.getMinutes())}:${p(st.getSeconds())}</span>`+
+    `<span>报表生成 ${esc(s.generated_at)}</span>`;
+  renderPills(s);renderCards(s);renderRuns(s);renderMgr(s);renderPlaylists(s);
+}
+
+async function load(){
+  try{
+    const s=await api("/api/state");
+    render(s);
+    // 登录态检测中（浏览器被占用）时，8 秒后再试一次
+    if(s.login && s.login._checking && !load._retryTimer){
+      load._retryTimer = setTimeout(()=>{load._retryTimer=null;load();}, 8000);
+    }
+  }catch(e){toast("加载失败："+e.message)}
+}
+
+document.getElementById("btnReload").onclick=load;
+
+document.getElementById("btnCheck").onclick=async()=>{
+  const b=document.getElementById("btnCheck");
+  b.disabled=true;b.textContent="巡检中…";
+  const r=await api("/api/check",{method:"POST",body:"{}"});
+  toast(r.ok?"巡检已启动":"无法启动："+r.message);
+  setTimeout(()=>{b.disabled=false;b.textContent="立即巡检";load()},1500);
+};
+
+/* ---------------- 主页链接 → 平台 + 账号 ID 自动识别 ---------------- */
+let linkResolveTimer = null;
+async function resolveLinkInto(inputId, selectId){
+  const input = document.getElementById(inputId);
+  const raw = input.value.trim();
+  if(!raw){ toast("请先粘贴主页链接"); return false; }
+  toast("正在识别链接…");
+  try{
+    const r = await api("/api/resolve",{method:"POST",body:JSON.stringify({url:raw})});
+    if(r.ok){
+      document.getElementById(selectId).value = r.platform;
+      input.value = r.id;
+      toast(`已识别：${PLAT_LABEL[r.platform]||r.platform} · ${r.id}`);
+      return true;
+    }
+    toast(r.message || "识别失败，请检查链接");
+  }catch(e){ toast("识别失败："+e.message); }
+  return false;
+}
+function bindLinkResolve(inputId, selectId, btnId){
+  const input = document.getElementById(inputId);
+  input.addEventListener("input", ()=>{
+    clearTimeout(linkResolveTimer);
+    // 粘贴完整链接后自动识别，不必再点按钮
+    if(/https?:\/\//i.test(input.value.trim())){
+      linkResolveTimer = setTimeout(()=>resolveLinkInto(inputId, selectId), 500);
+    }
+  });
+  document.getElementById(btnId).onclick = ()=>{
+    clearTimeout(linkResolveTimer);
+    resolveLinkInto(inputId, selectId);
+  };
+}
+bindLinkResolve("fId", "fPlat", "btnResolve");
+bindLinkResolve("eId", "ePlat", "btnEResolve");
+
+document.getElementById("btnAdd").onclick=async()=>{
+  const idInput=document.getElementById("fId");
+  let id=idInput.value.trim();
+  // 用户粘贴了链接但还没等自动识别完成：先识别再提交
+  if(/https?:\/\//i.test(id)){
+    if(!await resolveLinkInto("fId","fPlat")) return;
+    id=idInput.value.trim();
+  }
+  const plat=document.getElementById("fPlat").value;
+  const name=document.getElementById("fName").value.trim();
+  const people=document.getElementById("fPeople").value;
+  if(!id){showMsg("请填写账号 ID 或粘贴主页链接",false);return}
+  const r=await api("/api/targets",{method:"POST",body:JSON.stringify({
+    platform:plat,id,name,enabled:true,
+    options:{people:people?people.split(","):[]}})});
+  showMsg(r.message,r.ok);
+  if(r.ok){idInput.value="";document.getElementById("fName").value="";load()}
+};
+
+document.addEventListener("click",async e=>{
+  const btn=e.target.closest("button[data-act]");
+  if(btn){
+    const act=btn.dataset.act, idx=btn.dataset.idx;
+    if(act==="toggle"){
+      const t=(STATE.targets||[])[Number(idx)];
+      const r=await api(`/api/targets/${idx}`,{method:"PUT",
+        body:JSON.stringify({enabled:!t.enabled})});
+      showMsg(r.message,r.ok);load();
+    }else if(act==="del"){
+      if(!confirm("确定删除该目标？历史记录会保留。"))return;
+      const r=await api(`/api/targets/${idx}`,{method:"DELETE"});
+      showMsg(r.message,r.ok);load();
+    }else if(act==="check"){
+      const r=await api("/api/check",{method:"POST",body:JSON.stringify({target:btn.dataset.key})});
+      toast(r.ok?"已开始巡检 "+(btn.dataset.name||btn.dataset.key):"无法启动："+r.message);
+      setTimeout(load,2000);
+    }else if(act==="edit"){
+      e.stopPropagation();
+      openEditDialog(Number(idx));
+    }
+    return;
+  }
+  // 点卡片本体：在弹窗中查看变更记录
+  const card=e.target.closest(".card.clickable");
+  if(card){ openDetail(card.dataset.card); }
+});
+
+load();
+setInterval(load,30000);
+
+/* ============================ 登录面板 ============================ */
+const LOGIN_PLATS = [
+  {k:"xiaohongshu", name:"小红书", hint:"必须登录才能读取任何数据。点右上角登录图标，用小红书 App 扫码。"},
+  {k:"weibo",       name:"微博",   hint:"登录后可读取关注/粉丝列表（精确到人）。游客态只能读粉丝数。"},
+  {k:"douyin",      name:"抖音",   hint:"登录后可读取关注/粉丝列表（精确到人）。游客态只能读粉丝数。"},
+  {k:"netease",     name:"网易云音乐", hint:"登录后可读取粉丝列表。游客态可读歌单增删与关注列表。"},
+];
+let loginPlat = "xiaohongshu";
+let loginPoll = null;
+let lastShotAt = 0;
+
+function setLoginStatus(cls, text){
+  const el = document.getElementById("lStatus");
+  el.className = "lstatus " + cls;
+  el.innerHTML = `<span class="dot ${cls}"></span><span>${esc(text)}</span>`;
+}
+
+function renderPlatList(loginState){
+  const lg = (STATE && STATE.login) || {};
+  const checking = !!lg._checking;
+  const el = document.getElementById("platList");
+  el.innerHTML = LOGIN_PLATS.map(p=>{
+    const on = lg[p.k];
+    const st = loginState && loginState.platform===p.k ? loginState.state : null;
+    let stText;
+    if(st==="waiting"||st==="starting") stText = "登录中…";
+    else if(st==="success") stText = "登录成功";
+    else if(st==="failed") stText = "登录失败";
+    else if(checking) stText = "检测中…";
+    else if(on) stText = "已登录";
+    else stText = (p.k==="netease"||p.k==="weibo"||p.k==="douyin") ? "游客可读" : "需登录";
+    return `<button class="platbtn ${p.k===loginPlat?"active":""}" data-plat="${p.k}">
+      <span class="nm">${esc(p.name)}</span>
+      <span class="st ${on?"on":""}">${esc(stText)}</span></button>`;
+  }).join("");
+}
+
+function openLogin(plat){
+  if(plat) loginPlat = plat;
+  document.getElementById("loginMask").classList.add("show");
+  document.getElementById("loginHint").textContent =
+    (LOGIN_PLATS.find(p=>p.k===loginPlat)||{}).hint || "";
+  renderPlatList(null);
+  pollLogin();
+}
+
+function closeLogin(){
+  document.getElementById("loginMask").classList.remove("show");
+  if(loginPoll){clearInterval(loginPoll);loginPoll=null;}
+}
+
+async function pollLogin(){
+  if(loginPoll) clearInterval(loginPoll);
+  let firstShot = true;
+  const tick = async ()=>{
+    let st=null;
+    try{ st = await api("/api/login/status?platform="+encodeURIComponent(loginPlat)); }
+    catch(e){ return; }
+    renderPlatList(st);
+    if(st.state==="waiting"||st.state==="starting"){
+      setLoginStatus("idle", st.message || "准备中…");
+      // 有新截图就换
+      if(st.has_shot && st.shot_at!==lastShotAt){
+        try{
+          const r = await api("/api/login/shot?platform="+encodeURIComponent(loginPlat));
+          if(r.ok && r.shot){
+            lastShotAt = r.shot_at;
+            document.getElementById("shotWrap").innerHTML =
+              `<img src="data:image/jpeg;base64,${r.shot}" alt="登录画面">`;
+            if(firstShot){ firstShot=false; setLoginStatus("idle","请扫码登录（二维码约 1 分钟内有效）"); }
+          }
+        }catch(e){}
+      }
+    }else if(st.state==="success"){
+      setLoginStatus("ok", st.message||"登录成功");
+      document.getElementById("btnLoginRetry").style.display="";
+      toast("登录成功，凭证已保存");
+      load();
+    }else if(st.state==="failed"){
+      setLoginStatus("err", st.error||st.message||"登录失败");
+      document.getElementById("btnLoginRetry").style.display="";
+    }else if(st.state==="cancelled"){
+      setLoginStatus("idle","已取消");
+    }
+  };
+  await tick();
+  loginPoll = setInterval(tick, 1000);
+}
+
+document.getElementById("btnLoginStart").onclick = async ()=>{
+  setLoginStatus("idle","正在启动浏览器…");
+  const r = await api("/api/login/start",{method:"POST",body:JSON.stringify({platform:loginPlat})});
+  if(!r.ok){ setLoginStatus("err", r.message||"启动失败"); return; }
+  document.getElementById("btnLoginRetry").style.display="none";
+  lastShotAt = 0;
+  pollLogin();
+};
+
+document.getElementById("btnLoginCancel").onclick = async ()=>{
+  await api("/api/login/cancel",{method:"POST",body:JSON.stringify({platform:loginPlat})});
+  setLoginStatus("idle","已取消");
+};
+
+document.getElementById("btnLoginRefresh").onclick = ()=>{ lastShotAt=0; pollLogin(); };
+
+document.getElementById("btnLoginRetry").onclick = ()=>{
+  lastShotAt=0;
+  document.getElementById("btnLoginRetry").style.display="none";
+  document.getElementById("btnLoginStart").click();
+};
+
+document.getElementById("loginClose").onclick = closeLogin;
+document.getElementById("loginMask").addEventListener("click", e=>{
+  if(e.target.id==="loginMask") closeLogin();
+});
+document.addEventListener("keydown", e=>{
+  if(e.key!=="Escape") return;
+  closeLogin(); closeEdit();
+  document.getElementById("detailMask").classList.remove("show");
+});
+
+document.getElementById("platList").addEventListener("click", e=>{
+  const b = e.target.closest("[data-plat]");
+  if(!b) return;
+  loginPlat = b.dataset.plat;
+  document.getElementById("loginHint").textContent =
+    (LOGIN_PLATS.find(p=>p.k===loginPlat)||{}).hint || "";
+  lastShotAt=0;
+  document.getElementById("shotWrap").innerHTML =
+    `<div class="ph">点击「开始登录」以启动 ${esc((LOGIN_PLATS.find(p=>p.k===loginPlat)||{}).name||"")} 登录界面</div>`;
+  setLoginStatus("idle","未开始");
+  pollLogin();
+});
+
+// 顶部徽章点击 → 打开登录面板
+document.getElementById("pills").addEventListener("click", e=>{
+  const b = e.target.closest("[data-login]");
+  if(b) openLogin(b.dataset.login);
+});
+
+/* ============================ 目标编辑 ============================ */
+let editIdx = -1;
+
+function openEditDialog(idx){
+  const t = (STATE && STATE.targets || [])[idx];
+  if(!t){ toast("目标不存在"); return; }
+  editIdx = idx;
+  document.getElementById("editTitle").textContent = `编辑：${t.name}`;
+  document.getElementById("ePlat").value = t.platform;
+  document.getElementById("eId").value = t.id;
+  document.getElementById("eName").value = t.name;
+  const people = (t.options && t.options.people) || [];
+  document.getElementById("eFollow").checked = people.includes("following");
+  document.getElementById("eFans").checked = people.includes("followers");
+  document.getElementById("eMax").value = (t.options && t.options.max_users) || 500;
+  document.getElementById("eEnabled").checked = !!t.enabled;
+  const m=document.getElementById("editMsg");
+  m.className="msg"; m.textContent="";
+  document.getElementById("editMask").classList.add("show");
+}
+
+function closeEdit(){
+  document.getElementById("editMask").classList.remove("show");
+  editIdx = -1;
+}
+
+document.getElementById("editSave").onclick = async ()=>{
+  if(editIdx<0) return;
+  const idInput = document.getElementById("eId");
+  if(/https?:\/\//i.test(idInput.value.trim())){
+    if(!await resolveLinkInto("eId","ePlat")) return;
+  }
+  const people=[];
+  if(document.getElementById("eFollow").checked) people.push("following");
+  if(document.getElementById("eFans").checked) people.push("followers");
+  const body={
+    platform: document.getElementById("ePlat").value,
+    id: idInput.value.trim(),
+    name: document.getElementById("eName").value.trim(),
+    enabled: document.getElementById("eEnabled").checked,
+    options:{
+      people,
+      max_users: Number(document.getElementById("eMax").value) || 500,
+    },
+  };
+  const r = await api(`/api/targets/${editIdx}`,{method:"PUT",body:JSON.stringify(body)});
+  const m=document.getElementById("editMsg");
+  if(r.ok){
+    m.className="msg show ok"; m.textContent=r.message;
+    load();
+    setTimeout(closeEdit,700);
+  }else{
+    m.className="msg show err"; m.textContent=r.message||"保存失败";
+  }
+};
+
+document.getElementById("editCancel").onclick = closeEdit;
+document.getElementById("editClose").onclick = closeEdit;
+document.getElementById("editMask").addEventListener("click", e=>{
+  if(e.target.id==="editMask") closeEdit();
+});
+
+/* ============================ 变更记录弹窗 ============================ */
+function closeDetail(){document.getElementById("detailMask").classList.remove("show");}
+document.getElementById("detailClose").onclick = closeDetail;
+document.getElementById("detailMask").addEventListener("click", e=>{
+  if(e.target.id==="detailMask") closeDetail();
+});
+</script>
+</body>
+</html>

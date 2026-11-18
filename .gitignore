@@ -1,0 +1,39 @@
+# ---- 本地虚拟环境与依赖缓存 ----
+.venv/
+venv/
+__pycache__/
+*.py[cowd]
+.pytest_cache/
+.mypy_cache/
+
+# ---- 运行时数据：数据库、登录态、浏览器 profile ----
+# 这些内容包含真实账号的 cookie 与历史记录，绝不入库
+data/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+state.json
+browser/
+browser_container/
+browser_status/
+
+# ---- 本机实际配置：含真实监控目标 ----
+config.yaml
+
+# ---- 生成产物与日志 ----
+report.html
+*.log
+watch.log
+alert.log
+
+# ---- 本机定时任务配置（含本地绝对路径） ----
+com.socialwatch.plist
+
+# ---- 系统与编辑器 ----
+.DS_Store
+.idea/
+*.swp
+
+# ---- 本机一次性维护脚本（与项目无关）----
+cleanup_root_docker.sh

@@ -1,0 +1,23 @@
+# 本地虚拟环境与依赖缓存
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# 数据目录：数据库与登录态通过 volume 挂载，不进镜像
+data/
+*.db
+*.db-journal
+state.json
+
+# 本地产物
+report.html
+*.log
+.DS_Store
+
+# 不需要打进镜像的辅助文件
+com.socialwatch.plist
+run.sh
+README.md

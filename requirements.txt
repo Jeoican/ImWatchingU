@@ -1,0 +1,8 @@
+# 版本需与 Dockerfile 中的 Playwright 镜像保持一致，
+# 否则 pip 装的 playwright 与镜像内置的浏览器版本对不上会启动失败。
+playwright==1.65.0
+PyYAML>=6.0
+# 网易云 weapi 加密接口（AES-CBC + RSA），用于关注/粉丝列表
+pycryptodome>=3.19
+# 网页登录面板的截图压缩（PNG 280KB → JPEG 约 40KB）
+Pillow>=10.0

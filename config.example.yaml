@@ -1,0 +1,54 @@
+# 监控配置示例
+# 解析 id：  .venv/bin/python cli.py resolve <平台> <链接>
+# 立即巡检：.venv/bin/python cli.py check
+#
+# 平台：netease / weibo / douyin / xiaohongshu
+#
+# options:
+#   watch_playlists: all 或 ["歌单id"]   —— 网易云盯哪些歌单
+#   metrics: [followers, following]      —— 数值型指标
+#   people: [following, followers]       —— 精确到人（关注了谁 / 谁关注了TA）
+#   max_users: 500                       —— 列表最多读多少人（大号粉丝可能千万级）
+#
+# 容器部署时这个文件会被挂载进 /app/config.yaml，
+# 也可以直接在 Web 看板的「目标管理」里增删改，改动实时写回本文件。
+
+# 巡检间隔（分钟）。容器内调度器按此间隔执行；下限 5 分钟，
+# 平台对高频访问敏感，不建议低于 30 分钟。
+poll_interval_minutes: 60
+
+# 容器内必须为 true（容器没有图形界面）
+browser_headless: true
+
+targets:
+- name: 示例-网易云某用户
+  platform: netease
+  id: "1234567890"
+  enabled: false               # 改成 true 并替换 id 即可启用
+  options:
+    watch_playlists: all
+    people: [following]        # 关注列表游客可读；粉丝列表需 login netease
+    max_users: 300
+
+- name: 示例-微博某账号
+  platform: weibo
+  id: "1234567890"
+  enabled: false
+  options:
+    metrics: [followers, following]
+    # people: [following, followers]    # 需先 login weibo
+
+- name: 示例-抖音某账号
+  platform: douyin
+  id: "MS4wLjABAAAA<replace-with-your-own-sec-uid>"
+  enabled: false
+  options:
+    metrics: [followers, following]
+    # people: [following, followers]    # 需先 login douyin
+
+- name: 示例-小红书某账号
+  platform: xiaohongshu
+  id: "000000000000000000000000"
+  enabled: false
+  options:
+    metrics: [followers, following]
