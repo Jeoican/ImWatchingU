@@ -36,4 +36,4 @@ if [ "$#" -gt 0 ]; then
   exec "$@"
 fi
 
-exec python webapp.py
+exec python -m imwatching.webapp

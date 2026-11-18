@@ -4,8 +4,6 @@ from __future__ import annotations
 import time
 from typing import Any
 
-import netease
-
 
 def _diff_sets(old: set[str], new: set[str]) -> tuple[list[str], list[str], list[str]]:
     added = [x for x in new if x not in old]

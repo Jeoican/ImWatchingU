@@ -15,15 +15,16 @@ from pathlib import Path
 
 import yaml
 
-import platforms
-import runner
-from store import Store
+from . import config
+from . import runner
+from .core.store import Store
+from .platforms import browser as platforms
 
-ROOT = Path(__file__).resolve().parent
-CFG = ROOT / "config.yaml"
-DB = ROOT / "data" / "watch.db"
+ROOT = config.ROOT
+CFG = config.CFG
+DB = config.DB
 PROFILE = platforms.profile_root()
-STATE_FILE = ROOT / "data" / "state.json"
+STATE_FILE = config.STATE_FILE
 
 _stop = threading.Event()
 
@@ -59,7 +60,7 @@ def _interval() -> int:
 
 
 def _make_browser(headless: bool = True):
-    import platforms
+    from .platforms import browser as platforms
     return platforms.Browser(PROFILE, headless=headless, state_file=STATE_FILE)
 
 

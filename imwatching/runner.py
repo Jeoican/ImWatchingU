@@ -9,8 +9,8 @@ import threading
 import time
 from pathlib import Path
 
-import platforms
-from store import Store
+from .core.store import Store
+from .platforms import browser as platforms
 
 # 全局锁：调度器与手动触发可能同时到来，浏览器 profile 不能并发使用
 _check_lock = threading.Lock()
@@ -33,7 +33,7 @@ def run_check(cfg: dict, store: Store, target_filter: str | None = None,
     browser_factory: 返回 Browser 上下文的工厂，默认用 cli.make_browser
     """
     if browser_factory is None:
-        import cli
+        from . import cli
         browser_factory = cli.make_browser
 
     targets = [t for t in (cfg.get("targets") or []) if t.get("enabled")]
@@ -55,7 +55,7 @@ def run_check(cfg: dict, store: Store, target_filter: str | None = None,
                 box["browser"] = browser_factory(
                     headless=cfg.get("browser_headless", True)).__enter__()
             for t in targets:
-                from cli import check_one
+                from .cli import check_one
                 status, msg, events = check_one(store, t, box)
                 total_events += len(events)
                 results.append({

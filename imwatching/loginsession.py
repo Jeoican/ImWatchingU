@@ -20,11 +20,12 @@ import threading
 import time
 from pathlib import Path
 
-import platforms
+from . import config
+from .platforms import browser as platforms
 
-ROOT = Path(__file__).resolve().parent
-DATA = ROOT / "data"
-STATE_FILE = DATA / "state.json"
+ROOT = config.ROOT
+DATA = config.DATA
+STATE_FILE = config.STATE_FILE
 
 # 登录成功后由 webapp 注册的回调（清状态缓存），避免反向 import 造成循环依赖
 _on_login_saved = None

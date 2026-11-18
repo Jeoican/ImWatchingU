@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imwatching"
+version = "1.0.0"
+description = "社媒账号变更监控：歌单增删、粉丝关注数变化、谁关注了谁"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["social-media", "monitoring", "playwright", "weibo", "douyin", "xiaohongshu", "netease"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+]
+
+dependencies = [
+    "playwright==1.65.0",
+    "PyYAML>=6.0",
+    "pycryptodome>=3.19",
+    "Pillow>=10.0",
+]
+
+[project.scripts]
+imwatching = "imwatching.cli:main"
+
+[tool.setuptools]
+packages = ["imwatching", "imwatching.core", "imwatching.platforms"]
+
+[tool.setuptools.package-data]
+imwatching = []

@@ -27,6 +27,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN playwright install chromium && \
     ls -d /ms-playwright/chromium-*/ 2>/dev/null || true
 
+# 以可编辑模式安装本项目：让 `python -m imwatching.webapp` 能找到包，
+# 同时提供 imwatching 命令行入口
+COPY pyproject.toml .
+COPY imwatching ./imwatching
+RUN pip install --no-cache-dir -e .
+
+# 其余文件（前端、脚本、配置样例）
 COPY . .
 
 # 数据与配置目录：config.yaml 挂载进来，data/ 挂载为卷持久化

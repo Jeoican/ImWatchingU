@@ -5,10 +5,13 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+*.egg-info/
 
 # 数据目录：数据库与登录态通过 volume 挂载，不进镜像
 data/
 *.db
+*.db-wal
+*.db-shm
 *.db-journal
 state.json
 
@@ -21,3 +24,4 @@ report.html
 com.socialwatch.plist
 run.sh
 README.md
+README.zh-CN.md

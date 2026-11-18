@@ -29,18 +29,19 @@ from urllib.parse import parse_qs, urljoin, urlparse
 
 import yaml
 
-import platforms
-import report
-import runner
-from store import Store
+from . import config
+from .core import report
+from .core.store import Store
+from . import runner
+from .platforms import browser as platforms
 
-ROOT = Path(__file__).resolve().parent
-CFG = ROOT / "config.yaml"
-DB = ROOT / "data" / "watch.db"
+ROOT = config.ROOT
+CFG = config.CFG
+DB = config.DB
 PROFILE = platforms.profile_root()
-STATE_FILE = ROOT / "data" / "state.json"
+STATE_FILE = config.STATE_FILE
 
-PAGE = ROOT / "web" / "index.html"
+PAGE = config.PAGE
 
 _check_thread_lock = threading.Lock()
 _check_thread: threading.Thread | None = None
@@ -138,13 +139,13 @@ def login_status(max_age: int = 60, force: bool = False) -> dict:
         busy = _check_thread_state["running"]
         if not busy:
             try:
-                import scheduler
+                from . import scheduler
                 busy = scheduler.status().get("running", False)
             except Exception:  # noqa: BLE001
                 busy = False
         if not busy:
             try:
-                import loginsession
+                from . import loginsession
                 for s in loginsession.MANAGER._sessions.values():
                     if s.state in ("starting", "waiting"):
                         busy = True
@@ -481,7 +482,7 @@ def build_state() -> dict:
     # 合并手动触发与调度器两条通道的状态，让页面能看到真实巡检情况
     sched = {}
     try:
-        import scheduler
+        from . import scheduler
         sched = scheduler.status()
     except Exception:  # noqa: BLE001
         sched = {}
@@ -570,7 +571,7 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/api/login/status":
                 plat = (q.get("platform") or [""])[0]
-                import loginsession
+                from . import loginsession
                 s = loginsession.MANAGER.get(plat)
                 if not s:
                     self._json({"ok": True, "state": "idle", "message": "未开始"})
@@ -580,7 +581,7 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/api/login/shot":
                 plat = (q.get("platform") or [""])[0]
-                import loginsession
+                from . import loginsession
                 s = loginsession.MANAGER.get(plat)
                 if not s:
                     self._json({"ok": False, "message": "没有进行中的登录"}, 404)
@@ -643,13 +644,13 @@ class Handler(BaseHTTPRequestHandler):
                 if plat not in ("netease", "weibo", "douyin", "xiaohongshu"):
                     self._json({"ok": False, "message": "不支持的平台"}, 400)
                     return
-                import loginsession
+                from . import loginsession
                 s = loginsession.MANAGER.start(plat)
                 self._json({"ok": True, "platform": plat, **s.status()})
                 return
             if path == "/api/login/cancel":
                 plat = (body.get("platform") or "").strip()
-                import loginsession
+                from . import loginsession
                 ok = loginsession.MANAGER.cancel(plat)
                 self._json({"ok": ok, "message": "已取消" if ok else "没有进行中的登录"})
                 return
@@ -685,11 +686,11 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(host: str = "0.0.0.0", port: int = 8080, with_scheduler: bool = True) -> None:
     # 登录凭证保存后主动清缓存，让平台状态立即刷新
-    import loginsession
+    from . import loginsession
     loginsession.set_saved_callback(invalidate_login_cache)
 
     if with_scheduler:
-        import scheduler
+        from . import scheduler
         scheduler.start_background(run_immediately=True)
         print("  调度器已随 Web 服务启动")
 

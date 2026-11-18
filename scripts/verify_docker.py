@@ -5,7 +5,8 @@ import sys
 
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parent
+# scripts/ 的上一级才是项目根目录
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 fails = []
 
 
@@ -57,7 +58,7 @@ ep = (ROOT / "entrypoint.sh").read_text(encoding="utf-8")
 chk("以 set -e 开头", ep.strip().startswith("#!/bin/bash"))
 chk("配置缺失时自动创建", "config.example.yaml" in ep)
 chk("创建 data 目录", "mkdir -p /app/data" in ep)
-chk("最终 exec webapp", "exec python webapp.py" in ep)
+chk("最终 exec webapp", "exec python -m imwatching.webapp" in ep)
 chk("支持调试模式覆盖命令", 'if [ "$#" -gt 0 ]' in ep)
 chk("有可执行权限", (ROOT / "entrypoint.sh").stat().st_mode & 0o111 != 0)
 

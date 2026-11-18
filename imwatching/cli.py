@@ -10,20 +10,21 @@ from pathlib import Path
 
 import yaml
 
-import engine
-import netease
-import netease_social
-import platforms
-import weibo_social
-from store import Store
+from . import config
+from .core import engine
+from .platforms import browser as platforms
+from .platforms import netease
+from .platforms import netease_social
+from .platforms import weibo_social
+from .core.store import Store
 
-ROOT = Path(__file__).resolve().parent
-CFG = ROOT / "config.yaml"
-DB = ROOT / "data" / "watch.db"
+ROOT = config.ROOT
+CFG = config.CFG
+DB = config.DB
 # 浏览器 profile 根目录。容器与宿主机通过 SW_PROFILE_ROOT 隔离，
 # 否则两边的 Chromium 会互相覆写 profile（cookie 加密格式不同）。
 PROFILE = platforms.profile_root()
-STATE_FILE = ROOT / "data" / "state.json"
+STATE_FILE = config.STATE_FILE
 
 
 def load_cfg() -> dict:
@@ -308,7 +309,7 @@ def cmd_log(args):
 
 def cmd_report(args):
     """生成 HTML 报表。"""
-    import report
+    from .core import report
     store = Store(DB)
     cfg = load_cfg()
     out = report.build(store, cfg, ROOT / "report.html")

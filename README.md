@@ -12,6 +12,8 @@ A self-hosted social-media watcher. It polls public profile pages, diffs every r
 [![Dependencies](https://img.shields.io/badge/web%20framework-none-lightgrey)](#why-no-framework)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+English | [简体中文](README.zh-CN.md)
+
 </div>
 
 ---
@@ -66,13 +68,13 @@ python3 -m venv .venv
 cp config.example.yaml config.yaml
 
 # resolve a profile link into the id the config expects
-.venv/bin/python cli.py resolve netease "https://music.163.com/#/user/home?id=xxxxx"
-.venv/bin/python cli.py resolve weibo   "https://weibo.com/u/xxxxx"
-.venv/bin/python cli.py resolve douyin  "https://v.douyin.com/xxxxx"
+.venv/bin/python -m imwatching.cli resolve netease "https://music.163.com/#/user/home?id=xxxxx"
+.venv/bin/python -m imwatching.cli resolve weibo   "https://weibo.com/u/xxxxx"
+.venv/bin/python -m imwatching.cli resolve douyin  "https://v.douyin.com/xxxxx"
 
-.venv/bin/python cli.py check     # one scan now
-.venv/bin/python cli.py report    # writes report.html
-.venv/bin/python webapp.py        # dashboard on :8080
+.venv/bin/python -m imwatching.cli check     # one scan now
+.venv/bin/python -m imwatching.cli report    # writes report.html
+.venv/bin/python -m imwatching.webapp        # dashboard on :8080
 ```
 
 > On macOS, `SW_BROWSER_CHANNEL` defaults to `chrome` and uses your installed Google Chrome. Elsewhere, set it to an empty string to use Playwright's bundled Chromium.
@@ -137,8 +139,8 @@ Three of the four platforms need a session for anything beyond public counters. 
 **From the CLI** — opens Chrome on your machine:
 
 ```bash
-.venv/bin/python cli.py login xiaohongshu
-.venv/bin/python cli.py export-state     # for containers: writes data/state.json
+.venv/bin/python -m imwatching.cli login xiaohongshu
+.venv/bin/python -m imwatching.cli export-state     # for containers: writes data/state.json
 docker compose restart                   # picks up the new state
 ```
 
@@ -146,19 +148,19 @@ docker compose restart                   # picks up the new state
 
 Presence of a cookie is not proof of login. All three platforms hand out tracking cookies (`SUB` on Weibo, `web_session` on Xiaohongshu, `ttwid` on Douyin) to visitors who never signed in. The watcher therefore probes for signals that only exist after authentication — Weibo's `isLogin` field, whether Xiaohongshu redirects to `/login`, Douyin's `sessionid` — and reports guest sessions correctly as signed out.
 
-Sessions expire (typically weeks; Douyin sooner). `cli.py status` reports per-platform validity and flags targets that have failed three runs in a row.
+Sessions expire (typically weeks; Douyin sooner). `imwatching status` reports per-platform validity and flags targets that have failed three runs in a row.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
-| `cli.py check [--target NAME]` | Run one scan |
-| `cli.py report` | Rebuild the self-contained `report.html` |
-| `cli.py log [--limit N]` | Print the change feed |
-| `cli.py status` | Session health and recent failures |
-| `cli.py resolve PLATFORM URL` | Turn a profile link into a config id |
-| `cli.py login PLATFORM` | Interactive login, saves cookies |
-| `cli.py export-state` | Consolidate sessions into `state.json` |
+| `imwatching check [--target NAME]` | Run one scan |
+| `imwatching report` | Rebuild the self-contained `report.html` |
+| `imwatching log [--limit N]` | Print the change feed |
+| `imwatching status` | Session health and recent failures |
+| `imwatching resolve PLATFORM URL` | Turn a profile link into a config id |
+| `imwatching login PLATFORM` | Interactive login, saves cookies |
+| `imwatching export-state` | Consolidate sessions into `state.json` |
 
 ## HTTP API
 
@@ -194,20 +196,34 @@ Drop `config.yaml` and `data/` onto another machine and it picks up exactly wher
 ## Architecture
 
 ```
-webapp.py          HTTP server (stdlib only) + JSON API
-web/index.html     Dashboard; no build step, edits apply on refresh
-loginsession.py    QR login: Xvfb + headful browser + frame capture
-scheduler.py       In-container polling loop
-runner.py          Scan executor shared by CLI, web, and scheduler
-engine.py          Diffing and event generation
-store.py           SQLite layer (WAL)
-platforms.py       Browser session layer for Douyin / Weibo / Xiaohongshu
-netease.py         Playlist and track collection
-netease_social.py  NetEase following / follower lists (AES-CBC + RSA)
-weibo_social.py    Weibo following / follower lists
-report.py          Report aggregation, shared by static page and API
-cli.py             Command-line entry point
+ImWatchingU/
+├── imwatching/                # the package
+│   ├── config.py              # single source of truth for all paths
+│   ├── cli.py                 # Command-line entry point
+│   ├── webapp.py              # HTTP server (stdlib only) + JSON API
+│   ├── loginsession.py        # QR login: Xvfb + headful browser + frame capture
+│   ├── scheduler.py           # In-container polling loop
+│   ├── runner.py              # Scan executor shared by CLI, web, and scheduler
+│   ├── core/                  # Platform-agnostic domain logic
+│   │   ├── engine.py          #   Diffing and event generation
+│   │   ├── store.py           #   SQLite layer (WAL)
+│   │   └── report.py          #   Report aggregation, shared by page and API
+│   └── platforms/             # Platform collection adapters
+│       ├── browser.py         #   Browser session layer (Douyin/Weibo/XHS)
+│       ├── netease.py         #   Playlist and track collection
+│       ├── netease_social.py  #   NetEase following / follower lists (AES-CBC + RSA)
+│       └── weibo_social.py    #   Weibo following / follower lists
+├── web/index.html             # Dashboard; no build step, edits apply on refresh
+├── scripts/verify_docker.py   # Static validation of the Docker setup
+├── config.example.yaml        # Configuration sample
+├── Dockerfile / docker-compose.yml
+├── entrypoint.sh / run.sh
+└── pyproject.toml
 ```
+
+The layering is deliberate: `core/` knows nothing about any specific platform, `platforms/` only handles fetching data, and the diffing, storage, and reporting logic stays platform-independent. Adding a platform means adding one module under `platforms/`.
+
+Every path — config file, database, login state, dashboard page — resolves through `imwatching/config.py`, so the package can live in a subdirectory without anything else needing to know where it is.
 
 ### Why no framework
 
@@ -261,7 +277,7 @@ launchctl unload ~/Library/LaunchAgents/com.socialwatch.plist
 
 - **Poll no faster than every 30 minutes.** All four platforms rate-limit aggressively; frequent requests trigger risk controls that fail the entire run.
 - **Xiaohongshu always requires login**, and its session expires every few weeks.
-- **Douyin's `sec_uid` is not the @handle.** Use `cli.py resolve` on a profile URL.
+- **Douyin's `sec_uid` is not the @handle.** Use `imwatching resolve` on a profile URL.
 - **NetEase occasionally withholds a track name** for signed-out visitors; the entry then shows `歌曲(id 12345)` with the id still correct.
 - **Big follower lists are capped, not fully read.** A ten-million-follower account cannot be enumerated; the log always states how many entries were actually read.
 - **Private profiles are marked, not guessed.** If someone hides their following list, the watcher records the count and says the list itself is inaccessible.

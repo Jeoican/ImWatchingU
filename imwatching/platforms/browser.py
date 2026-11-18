@@ -29,6 +29,8 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+from .. import config as _config
+
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
 
@@ -76,13 +78,12 @@ def profile_root() -> Path:
     结果是登录态被清空、两边互相破坏。
     通过 SW_PROFILE_ROOT 环境变量切换即可。
     """
-    root = os.environ.get("SW_PROFILE_ROOT", "").strip()
-    return Path(root) if root else Path("data/browser")
+    return _config.profile_root()
 
 
 def profile_path(name: str) -> Path:
     """取某个用途独立的 profile 目录（status / resolve / login / retry）。"""
-    return profile_root() / name if name else profile_root()
+    return _config.profile_path(name)
 
 
 def _jitter(a: float = 0.6, b: float = 1.6) -> None:
