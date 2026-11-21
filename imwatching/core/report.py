@@ -129,6 +129,10 @@ def collect_payload(store, cfg: dict, event_limit: int = 800,
                 head["歌曲"] = sum(p["track_count"] for p in pls)
             snap_f = store.last_snapshot(key, "__account__", "followers")
             snap_g = store.last_snapshot(key, "__account__", "following")
+            if snap_f or snap_g:
+                # 没有歌单时 head 是 None，同样要先补一个空字典
+                if head is None:
+                    head = {}
             if snap_f:
                 head["粉丝"] = snap_f["value"]
             if snap_g:
@@ -145,6 +149,9 @@ def collect_payload(store, cfg: dict, event_limit: int = 800,
             head = {"粉丝": snap["value"]} if snap else None
             snap2 = store.last_snapshot(key, "__account__", "following")
             if snap2:
+                # 没有粉丝快照时 head 是 None（例如小红书未登录），不能直接下标赋值
+                if head is None:
+                    head = {}
                 head["关注"] = snap2["value"]
             # 发布内容数（微博数 / 作品数 / 笔记数）
             cm = CONTENT_METRIC.get(plat)
