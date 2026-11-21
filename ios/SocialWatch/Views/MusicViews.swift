@@ -211,14 +211,73 @@ private struct SongRow: View {
 
 // MARK: - 迷你播放条
 
-/// 悬浮在 TabBar 上方的迷你播放器（胶囊卡片）。
-/// 只要有歌在队列里就显示，点它展开全屏。
+/// 右下角的小悬浮球播放器。
 ///
-/// 为什么是悬浮胶囊而不是贴边整行：
-/// 旧版是一条铺满屏宽、白色不透明、紧贴 TabBar 的横条，视觉上压住了
-/// 「看板/内容库/设置」三个 Tab 选项。现在改成左右留边 + 圆角 + 阴影的
-/// 卡片，并用 padding 与 TabBar 拉开距离——内容不遮挡，Tab 选项也看得清。
-struct MiniPlayerBar: View {
+/// 为什么从"整条横条"改成小球：
+/// 横条即使做成胶囊，也还是横贯屏宽的一条，压在内容上很重；
+/// 而且用 safeAreaInset 挂载会把 TabBar 背景顶成半透明。
+/// 现在是一个 56pt 的小圆球，浮在 TabBar 右上方，环形进度包一圈，
+/// 只占右下角一小块，既不遮 Tab、也不遮列表内容。
+/// 点球进全屏播放器，长按可直接暂停/播放。
+struct MiniPlayerBubble: View {
+    @ObservedObject private var player = AudioPlayer.shared
+    @State private var showFullPlayer = false
+
+    var body: some View {
+        Group {
+            if player.currentSong != nil {
+                Button {
+                    showFullPlayer = true
+                } label: {
+                    ZStack {
+                        // 外圈进度环：一眼看出播到哪了
+                        Circle()
+                            .stroke(Color(.systemGray5), lineWidth: 3)
+                        Circle()
+                            .trim(from: 0, to: CGFloat(min(max(player.progress, 0), 1)))
+                            .stroke(Color(red: 0.82, green: 0.28, blue: 0.22),
+                                    style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+
+                        // 内圈白底
+                        Circle()
+                            .fill(Color.white)
+                            .padding(4)
+                            .shadow(color: Color.black.opacity(0.18), radius: 8, x: 0, y: 3)
+
+                        // 图标：加载中转圈，否则播/暂停
+                        if player.isLoading {
+                            ProgressView()
+                        } else {
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(Color(red: 0.82, green: 0.28, blue: 0.22))
+                                .offset(x: player.isPlaying ? 0 : 1.5)  // play 三角视觉居中微调
+                        }
+                    }
+                    .frame(width: 56, height: 56)
+                }
+                .buttonStyle(.plain)
+                // 长按快捷暂停/播放，不必进全屏
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.5).onEnded { _ in
+                        player.togglePlayPause()
+                    }
+                )
+                .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
+                .sheet(isPresented: $showFullPlayer) {
+                    FullPlayerView().environmentObject(AudioPlayer.shared)
+                }
+                .transition(.scale(scale: 0.6).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: player.currentSong != nil)
+    }
+}
+
+/// 旧版整条迷你播放器。已由 MiniPlayerBubble 取代，保留代码便于对照回滚。
+/// 当前无任何视图引用它（避免 dead code 编译告警不影响功能）。
+private struct MiniPlayerBar: View {
     @ObservedObject private var player = AudioPlayer.shared
     @State private var showFullPlayer = false
 
@@ -227,9 +286,6 @@ struct MiniPlayerBar: View {
             if player.currentSong != nil {
                 VStack(spacing: 0) {
                     HStack(spacing: 10) {
-                        ProgressView()
-                            .frame(width: 2, height: 2)
-                            .opacity(player.isLoading ? 1 : 0)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(player.currentSong?.displayName ?? "")
                                 .font(.system(size: 13, weight: .medium))
@@ -247,22 +303,11 @@ struct MiniPlayerBar: View {
                                 .font(.system(size: 30))
                                 .foregroundColor(Color(red: 0.82, green: 0.28, blue: 0.22))
                         }
-                        // 按钮命中区放大，避免胶囊圆角处点不到
-                        .frame(width: 40, height: 40)
-                        .contentShape(Rectangle())
-                        Button { player.next() } label: {
-                            Image(systemName: "forward.fill")
-                                .font(.system(size: 18))
-                                .foregroundColor(.primary)
-                        }
-                        .frame(width: 28, height: 40)
-                        .contentShape(Rectangle())
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .contentShape(Rectangle())
                     .onTapGesture { showFullPlayer = true }
-                    // 细进度条
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Color(.systemGray5).frame(height: 2)
@@ -271,22 +316,8 @@ struct MiniPlayerBar: View {
                         }
                     }
                     .frame(height: 2)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
                 }
-                // 悬浮胶囊外观
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.white)
-                        .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 3)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color(.systemGray4).opacity(0.5), lineWidth: 0.5)
-                )
-                // 左右留边 + 与 TabBar 的距离：这就是"悬浮"的观感来源
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
+                .background(Color.white)
                 .sheet(isPresented: $showFullPlayer) { FullPlayerView().environmentObject(AudioPlayer.shared) }
             }
         }
