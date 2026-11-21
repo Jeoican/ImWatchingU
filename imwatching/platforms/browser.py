@@ -19,6 +19,7 @@ Playwright 用本机 Chrome（channel="chrome"），数据目录持久化，登�
 """
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import random
@@ -249,33 +250,16 @@ def _has_cookie(ctx, domain_part: str, name: str | None = None) -> bool:
 
 
 def _weibo_logged_in(ctx) -> bool:
-    """微博：调登录态接口，游客态返回的 user 里没有个人昵称。"""
-    try:
-        page = ctx.new_page()
-    except Exception:  # noqa: BLE001
-        return True  # 打不开页面时不误报
-    try:
-        page.goto("https://weibo.com/", wait_until="domcontentloaded", timeout=25000)
-        time.sleep(2.0)
-        raw = page.evaluate(
-            """async () => {
-              const r = await fetch('/ajax/profile/info?uid=1749127163',
-                {credentials:'include'});
-              const j = await r.json();
-              const u = (j && j.data && j.data.user) || {};
-              return {isLogin: u.isLogin, hasMore: j && j.data && !!j.data.more};
-            }"""
-        )
-        d = json.loads(raw) if isinstance(raw, str) else raw
-        # isLogin 明确为 true，或返回了登录态才有的 more 字段
-        return bool(d.get("isLogin")) or bool(d.get("hasMore"))
-    except Exception:  # noqa: BLE001
-        return True  # 探测失败时保守处理，不误报为未登录
-    finally:
-        try:
-            page.close()
-        except Exception:  # noqa: BLE001
-            pass
+    """微博：检测登录态专属 cookie（ALF / SSOLoginState）。
+
+    曾经用 /ajax/profile/info 的 isLogin/more 判定，但 2026-11 微博接口改版
+    移除了这两个字段，登录态与游客态返回一致（实测 data 只有 user/tabList/
+    blockText），导致扫码登录后徽章仍显示未登录。
+    ALF / SSOLoginState 是登录态专属：游客态访问首页只会拿到 SUB/SUBP/WBPSESS，
+    不会有这两个。本地 cookie 判定，不受接口改版影响。
+    """
+    return (_has_cookie(ctx, "weibo.com", "ALF")
+            or _has_cookie(ctx, "weibo.com", "SSOLoginState"))
 
 
 def _xhs_visitor(ctx) -> bool:
@@ -413,6 +397,29 @@ def weibo_profile(browser: Browser, uid: str) -> dict:
         if d.get("ok") != 1:
             raise RuntimeError(f"微博接口异常：{str(d)[:160]}")
         u = d["data"]["user"]
+
+        # 最近发布内容：在同一个已打开的页面里顺带 fetch 一次用户微博列表，
+        # 不新开导航、风险低；失败只影响"最近内容"展示，不影响粉丝数等主数据。
+        # 同一次响应里就带 pic_infos（配图）和互动数，无需额外请求。
+        recent_posts: list[dict] = []
+        try:
+            raw2 = page.evaluate(
+                """async (uid) => {
+                  const r = await fetch('/ajax/statuses/mymblog?uid=' + uid + '&page=1&feature=0',
+                    {headers:{'accept':'application/json'}, credentials:'include'});
+                  return [r.status, await r.text()];
+                }""",
+                uid,
+            )
+            if raw2 and raw2[0] == 200:
+                d2 = json.loads(raw2[1])
+                recent_posts = _weibo_post_items(
+                    ((d2.get("data") or {}).get("list") or [])[:8], uid)
+                # 评论：只给有评论的前几条补，控制请求数（每条一次请求，最多 3 条）
+                _weibo_attach_comments(page, recent_posts, limit=3)
+        except Exception:  # noqa: BLE001
+            pass
+
         return {
             "kind": "weibo",
             "uid": uid,
@@ -422,9 +429,116 @@ def weibo_profile(browser: Browser, uid: str) -> dict:
             "following": u.get("friends_count"),
             "posts": u.get("statuses_count"),
             "followers_str": u.get("followers_count_str"),
+            "recent_posts": recent_posts,
         }
     finally:
         page.close()
+
+
+_WB_TIME_RE = re.compile(r"([A-Z][a-z]{2}) ([A-Z][a-z]{2}) (\d{1,2}) (\d{2}):(\d{2}):(\d{2}) ([+-]\d{4}) (\d{4})")
+_WB_MONTH = {m: i + 1 for i, m in enumerate(
+    ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))}
+
+
+def _weibo_ts(s: str | None) -> int | None:
+    """把微博的 'Sun Jun 28 20:34:54 +0800 2026' 转成 unix 秒。"""
+    m = _WB_TIME_RE.match((s or "").strip())
+    if not m:
+        return None
+    _, mon, day, hh, mm, ss, tz, year = m.groups()
+    try:
+        offset = int(tz[:3]) * 3600 + (1 if tz[0] == "-" else -1) * int(tz[3:]) * 60
+        return int(calendar.timegm((int(year), _WB_MONTH[mon], int(day),
+                                    int(hh), int(mm), int(ss), 0, 1, 0)) - offset)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _weibo_clean(txt: str) -> str:
+    """微博正文去表情 img / 标签 / 冗余空白。"""
+    txt = re.sub(r"<img[^>]*>", "", txt or "")
+    txt = re.sub(r"<[^>]+>", "", txt)
+    return re.sub(r"\s+", " ", txt).strip()
+
+
+def _weibo_post_items(items: list[dict], uid: str) -> list[dict]:
+    """把接口返回的每一条微博整理成前端需要的结构（含配图）。"""
+    out: list[dict] = []
+    for s in items:
+        txt = _weibo_clean(s.get("text_raw") or s.get("text") or "")
+        # 转发微博：把原微博内容也带上，否则只剩一句"转发微博"
+        rt = s.get("retweeted_status") or {}
+        rt_txt = ""
+        if rt:
+            rt_txt = _weibo_clean(rt.get("text_raw") or rt.get("text") or "")
+        # 配图：pic_infos 里选 bmiddle（360 宽，缩略图够用且省流量）
+        pics: list[str] = []
+        pi = s.get("pic_infos") or {}
+        for pid in (s.get("pic_ids") or [])[:4]:
+            info = pi.get(pid) or {}
+            url = ((info.get("bmiddle") or {}).get("url")
+                   or (info.get("thumbnail") or {}).get("url")
+                   or (info.get("large") or {}).get("url"))
+            if url:
+                pics.append(url if url.startswith("http") else "https:" + url)
+        mid = s.get("mblogid") or s.get("mid")
+        item = {
+            "text": txt[:180],
+            "images": pics,
+            "images_total": int(s.get("pic_num") or len(s.get("pic_ids") or [])),
+            "comments_count": int(s.get("comments_count") or 0),
+            "reposts": int(s.get("reposts_count") or 0),
+            "likes": int(s.get("attitudes_count") or 0),
+            "at": _weibo_ts(s.get("created_at")),
+            "id": str(s.get("id") or ""),
+            "url": f"https://weibo.com/{uid}/{mid}" if mid else "",
+        }
+        if rt_txt:
+            item["retweet"] = rt_txt[:120]
+        out.append(item)
+    return out
+
+
+def _weibo_attach_comments(page, posts: list[dict], limit: int = 3) -> None:
+    """给前 limit 条有评论的微博补上热门评论（每条一次请求）。
+
+    微博评论接口必须带 flow=0&is_reload=1，否则返回 400 参数错误。
+    """
+    done = 0
+    for p in posts:
+        if done >= limit:
+            break
+        if not p.get("id") or p.get("comments_count", 0) <= 0:
+            continue
+        try:
+            raw = page.evaluate(
+                """async (mid) => {
+                  const r = await fetch('/ajax/statuses/buildComments?flow=0&is_reload=1&id='
+                    + mid + '&is_show_bulletin=2&is_mix=0&count=6',
+                    {headers:{'accept':'application/json'}, credentials:'include'});
+                  return [r.status, await r.text()];
+                }""",
+                p["id"],
+            )
+            if not raw or raw[0] != 200:
+                continue
+            data = (json.loads(raw[1]).get("data") or [])[:3]
+            cm: list[dict] = []
+            for c in data:
+                txt = _weibo_clean(c.get("text_raw") or c.get("text") or "")
+                if not txt:
+                    continue
+                cm.append({
+                    "by": (c.get("user") or {}).get("screen_name") or "",
+                    "text": txt[:100],
+                    "likes": int(c.get("like_counts") or 0),
+                })
+            if cm:
+                p["comments"] = cm
+                done += 1
+        except Exception:  # noqa: BLE001
+            continue
 
 
 def weibo_resolve(browser: Browser, raw: str) -> tuple[str, str | None]:
@@ -489,6 +603,19 @@ def _xhs_from_initial_state(html: str, user_id: str) -> dict | None:
         fans = grab(r'"type":"fans"[^}]*?"count":"([^"]*)"', seg)
         likes = grab(r'"type":"interaction"[^}]*?"count":"([^"]*)"', seg)
 
+        # 笔记：SSR 页面里 notes 是已加载的笔记数组，数 noteCard 得到条数，
+        # 顺带取标题/封面/点赞作为"最近发布内容"展示（零额外接口请求）。
+        note_count = None
+        recent_posts: list[dict] = []
+        # notes 数组可能在 userPageData 起点 1000+ 字符之后，2000 的窗口会截断，
+        # 所以从 raw 里单独取更大范围来数 noteCard / 取标题。
+        notes_seg = raw[idx: idx + 30000]
+        npos = notes_seg.find('"notes"')
+        if npos >= 0:
+            notes_seg = notes_seg[npos:]
+            note_count = notes_seg.count('"noteCard"') or None
+            recent_posts = _xhs_post_items(notes_seg, user_id)
+
         if not (nickname or fans or follows):
             return None
 
@@ -515,10 +642,148 @@ def _xhs_from_initial_state(html: str, user_id: str) -> dict | None:
             "followers": as_int(fans),
             "following": as_int(follows),
             "likes": as_int(likes),
-            "notes": None,
+            "notes": note_count,
+            "recent_posts": recent_posts,
         }
     except Exception:  # noqa: BLE001
         return None
+
+
+def _xhs_unjson(s: str | None) -> str:
+    """SSR 里的字符串是 JSON 转义过的，还原成正常文本 / URL。"""
+    if not s:
+        return ""
+    try:
+        out = json.loads('"' + s.replace('"', '\\"') + '"')
+    except Exception:  # noqa: BLE001
+        out = s
+    return (out.replace("\\u002F", "/").replace("\\/", "/")
+            .replace("\\u003C", "<").replace("\\u003E", ">").strip())
+
+
+def _xhs_post_items(notes_seg: str, user_id: str) -> list[dict]:
+    """从 SSR 的 notes 段里取最近笔记（标题 / 封面 / 点赞 / 链接 / xsecToken）。
+
+    小红书 SSR 的 noteCard 结构：
+      "noteCard":{"type":"normal","interactInfo":{"likedCount":"50"},
+                  "cover":{"urlDefault":"http:\\u002F\\u002Fsns-webpic...!nc_n_webp_mw_1"},
+                  "noteId":"...","displayTitle":"...","time":1782650480,
+                  "xsecToken":"AB6Dxu..."}
+
+    重要：**用户主页 SSR 只暴露封面 1 张**（cover.urlDefault），多图笔记
+    在主页上看也是 1 张。要拿全部图片必须带 xsecToken 打开
+    /explore/<noteId>?xsec_token=... 的笔记详情页，其 SSR 的
+    note.imageList 才是完整列表。所以这里必须把 xsecToken 一并带出去，
+    否则调用方拿不到详情页（无 token 的详情页 SSR 是空的）。
+    """
+    out: list[dict] = []
+    # 按 noteCard 切片，避免把相邻笔记的字段串到一起
+    parts = notes_seg.split('"noteCard"')[1:]
+    for part in parts:
+        if len(out) >= 8:
+            break
+        title_m = re.search(r'"displayTitle":"([^"]*)"', part)
+        title = _xhs_unjson(title_m.group(1)) if title_m else ""
+        cover_m = re.search(r'"urlDefault":"([^"]*)"', part)
+        if not cover_m:
+            cover_m = re.search(r'"url":"(http[^"]*xhscdn[^"]*)"', part)
+        cover = _xhs_unjson(cover_m.group(1)) if cover_m else ""
+        if cover.startswith("http://"):
+            cover = "https://" + cover[7:]
+        # cover 里的 width/height 是封面图的真实尺寸，留着给前端算格子比例
+        cw_m = re.search(r'"height":(\d+),"width":(\d+)', part)
+        cw = int(cw_m.group(2)) if cw_m else 0
+        ch = int(cw_m.group(1)) if cw_m else 0
+        liked_m = re.search(r'"likedCount":"?(\d+)"?', part)
+        likes = int(liked_m.group(1)) if liked_m else 0
+        nid_m = re.search(r'"noteId":"([^"]*)"', part)
+        nid = nid_m.group(1) if nid_m else ""
+        # xsecToken 是详情页的准入票据，不带就拿不到 imageList
+        tk_m = re.search(r'"xsecToken":"([^"]*)"', part)
+        xsec = _xhs_unjson(tk_m.group(1)) if tk_m else ""
+        time_m = re.search(r'"time":(\d{10,})', part)
+        at = int(int(time_m.group(1)) / 1000) if time_m else None
+        vtype_m = re.search(r'"type":"(video|normal)"', part)
+        vtype = vtype_m.group(1) if vtype_m else "normal"
+        if not (title or cover or nid):
+            continue
+        out.append({
+            "text": title[:180] or "（无标题）",
+            "images": [cover] if cover else [],
+            # 主页 SSR 只知道封面这一张；真实张数由详情页补全（见 xhs_fill_images）
+            "images_cover": True,
+            "images_total": 1 if cover else 0,
+            "cover_w": cw, "cover_h": ch,
+            "xsec_token": xsec,
+            "likes": likes,
+            "at": at,
+            "id": nid,
+            "video": vtype == "video",
+            "url": (f"https://www.xiaohongshu.com/explore/{nid}"
+                    if nid else f"https://www.xiaohongshu.com/user/profile/{user_id}"),
+        })
+    return out
+
+
+def xhs_note_images(page, note_id: str, xsec_token: str = "") -> list[dict]:
+    """打开笔记详情页，取 imageList 里全部图片（含每张的真实宽高）。
+
+    返回 [{"url":..., "width":..., "height":...}]，失败返回空列表。
+
+    为什么必须走详情页：用户主页 SSR 的 cover 只有 1 张，多图笔记在主页
+    也只露封面。详情页的 note.imageList 才是完整列表（实测 9 张笔记
+    在主页显示 1 张、详情页 9 张）。
+    详情页必须有 xsec_token，否则 SSR 里 noteDetailMap 的 key 是
+    "undefined"、note 是空对象 —— 这是之前一直"只有一张图"的根本原因。
+    """
+    url = f"https://www.xiaohongshu.com/explore/{note_id}"
+    if xsec_token:
+        url += f"?xsec_token={xsec_token}&xsec_source=pc_user"
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=45000)
+    except Exception:  # noqa: BLE001
+        return []
+    # SSR 注入可能晚于 DOM，最多等 6 秒
+    for _ in range(12):
+        try:
+            got = page.evaluate(
+                """()=>{
+                const s=window.__INITIAL_STATE__;
+                const m=(s&&s.note&&s.note.noteDetailMap)||{};
+                for(const k of Object.keys(m)){
+                  const n=m[k] && m[k].note;
+                  if(n && n.imageList && n.imageList.length) {
+                    return n.imageList.map(x=>({
+                      url: x.urlDefault||'',
+                      width: x.width||0, height: x.height||0,
+                      infos: (x.infoList||[]).map(i=>({scene:i.imageScene, url:i.url})),
+                    }));
+                  }
+                }
+                return null;
+              }"""
+            )
+        except Exception:  # noqa: BLE001
+            got = None
+        if got:
+            out = []
+            for i, x in enumerate(got):
+                # 选最大档：infoList 里优先取非预览场景，否则退回 urlDefault
+                best = x.get("url") or ""
+                for it in x.get("infos") or []:
+                    sc = (it.get("scene") or "").upper()
+                    if sc and "PRV" not in sc and it.get("url"):
+                        best = it["url"]
+                        break
+                best = (best or "").replace("\\u002F", "/")
+                if best.startswith("http://"):
+                    best = "https://" + best[7:]
+                if best:
+                    out.append({"url": best, "width": x.get("width") or 0,
+                                "height": x.get("height") or 0, "seq": i + 1})
+            return out
+        page.wait_for_timeout(500)
+    return []
 
 
 def xhs_profile(browser: Browser, user_id: str) -> dict:

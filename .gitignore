@@ -21,8 +21,11 @@ browser/
 browser_container/
 browser_status/
 
-# ---- 本机实际配置：含真实监控目标 ----
+# ---- 本机实际配置：含真实监控目标 / 通知密钥 ----
 config.yaml
+.env
+.env.*
+!.env.example
 
 # ---- 生成产物与日志 ----
 report.html
@@ -40,3 +43,17 @@ com.socialwatch.plist
 
 # ---- 本机一次性维护脚本（与项目无关）----
 cleanup_root_docker.sh
+
+# 访问鉴权 token 清单（含哈希，等同凭证）
+data/auth.json
+
+# ---- 一次性备份文件（改造前的快照，不入库）----
+*.bak
+*.bak-*
+
+# ---- iOS 工程：构建产物 / 用户态配置 / IDE 元数据 ----
+ios/output/
+ios/**/xcuserdata/
+ios/**/project.xcworkspace/
+*.xcuserstate
+DerivedData/

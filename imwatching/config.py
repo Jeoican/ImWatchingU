@@ -26,6 +26,23 @@ DB = DATA / "watch.db"
 #: 登录态（storage state），供浏览器会话注入
 STATE_FILE = DATA / "state.json"
 
+#: 访问鉴权的 token 清单（只存 sha256，明文仅在签发时出现一次）。
+#: 放在 data/ 下因为它属于运行状态而非配置；data/ 已 gitignore。
+#: 用 SW_AUTH_FILE 可指向别处（比如挂到宿主机便于用 CLI 管理）。
+AUTH_FILE = DATA / "auth.json"
+
+#: 内容归档的图片根目录。原图单张可达 4.6MB，必须落在文件系统而非 SQLite，
+#: 否则每次查询都会被大 BLOB 拖慢。按 <target>/<post_id>/<seq>.jpg 分目录存放。
+ARCHIVE = DATA / "archive"
+
+
+def archive_root() -> Path:
+    """归档媒体根目录，可用 SW_ARCHIVE_ROOT 覆盖（便于把图片放独立磁盘）。"""
+    root = os.environ.get("SW_ARCHIVE_ROOT", "").strip()
+    p = Path(root) if root else ARCHIVE
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
 #: 看板前端页面
 PAGE = ROOT / "web" / "index.html"
 
@@ -57,3 +74,17 @@ def ensure_data_dir() -> Path:
     """确保数据目录存在并返回它。"""
     DATA.mkdir(parents=True, exist_ok=True)
     return DATA
+
+
+def auth_file() -> Path:
+    """鉴权 token 清单路径，可用 SW_AUTH_FILE 覆盖。"""
+    p = os.environ.get("SW_AUTH_FILE", "").strip()
+    return Path(p) if p else AUTH_FILE
+
+
+def public_base_url() -> str:
+    """对外可访问的基址（如 https://sw.example.com），用于生成分享链接。
+
+    留空则返回空串，调用方自行回落到请求头推断。
+    """
+    return os.environ.get("SW_PUBLIC_BASE_URL", "").strip().rstrip("/")

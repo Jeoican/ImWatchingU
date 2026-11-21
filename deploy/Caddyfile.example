@@ -1,0 +1,64 @@
+# SocialWatch 公网反代配置（Caddy v2）
+#
+# 放在 NAS 上，路径通常是 /etc/caddy/Caddyfile 或某个 sites 目录。
+# 需要改的只有两处：域名、以及上游地址里的端口。
+#
+# 前提：SocialWatch 跑在 NAS 的 Docker 里。若它和 Caddy 都在 Docker 中，
+# 上游写容器名（socialwatch:8080）比写 127.0.0.1 更稳，也不受端口映射影响；
+# 若 Caddy 装在宿主机（apt/brew 安装），上游写 127.0.0.1:8080。
+#
+# 关键点，逐条对应下面配置里的行：
+#   1. 只监听域名，不写 0.0.0.0 —— 避免把 80/443 全占掉影响别的服务
+#   2. HSTS 只对 https 站点生效；max-age 先给短一点，确认没混合内容再拉长
+#   3. reverse_proxy 默认会转发 X-Forwarded-For/Proto，但服务端会因此
+#      把「客户端 IP」看到成 NAS 内网地址。本项目没做 IP 白名单，无影响。
+#   4. request_body max_size：本项目上传只有截图，笼统给 8MB 够用；
+#      不设的话 Caddy 默认 100MB，被打时容易吃内存。
+#   5. 关闭上游的 response buffering 不是必须；图片走 Range，Caddy 会透传。
+
+# ---------- 站点 ----------
+sw.example.com {
+	# 反代到容器。若 Caddy 与 socialwatch 在同一 docker 网络里，用容器名；
+	# 否则改成 127.0.0.1:8080（compose 里映射的宿主机端口）。
+	reverse_proxy socialwatch:8080 {
+		# 后端是单进程 http.server，并发一般。给个合理超时，
+		# 避免一次大图下载把连接长期占住（原图 3–7MB，局域网/4G 都够）。
+		transport http {
+			read_timeout 60s
+			dial_timeout 5s
+		}
+	}
+
+	# 上传体积上限。本服务的 POST 都是小 JSON，唯一较大的只有登录截图。
+	request_body {
+		max_size 8MB
+	}
+
+	# 安全响应头。注意：不要加 X-Frame-Options: DENY 之外的严格 CSP，
+	# 前端是单文件内联 script/style，加 CSP 会把页面自己拦掉。
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	# 访问日志：图片请求会非常多（一次列表 76 张），单独分开便于排查。
+	# 日志里不含 token（凭证在 header/cookie，Caddy 默认不记录值）。
+	log {
+		output file /var/log/caddy/socialwatch.log {
+			roll_size 20MB
+			roll_keep 5
+		}
+		format json
+	}
+
+	encode gzip zstd
+}
+
+# ---------- 本机回环：给 Docker healthcheck / 本机脚本用 ----------
+# 若不需要可整段删除。监听 127.0.0.1 而非 0.0.0.0，外部无法访问。
+http://127.0.0.1:8081 {
+	reverse_proxy 127.0.0.1:8080
+}

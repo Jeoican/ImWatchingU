@@ -105,23 +105,48 @@ def watch_netease(store, target: dict, data: dict) -> list[dict]:
     return events
 
 
+# 各平台"发布内容数"指标：即使 config 的 metrics 没配，也自动采集，
+# 这样卡片能直接显示发了多少条内容，且不产生额外的上游接口请求。
+_CONTENT_METRIC = {"weibo": "posts", "douyin": "works", "xiaohongshu": "notes"}
+# 内容数指标只做数值快照，不产生 count_up/down 事件（避免污染粉丝变动统计）。
+_CONTENT_METRICS = set(_CONTENT_METRIC.values())
+
+
 def watch_counts(store, target: dict, data: dict, metrics: list[str] | None = None) -> list[dict]:
     """粉丝/关注等数值型指标比对，适用于微博/抖音/小红书。"""
     platform = data["kind"]
     target_key = f"{platform}:{target['id']}"
     metrics = metrics or (target.get("options") or {}).get("metrics") or ["followers", "following"]
 
+    # 自动补充发布内容数（ posts / works / notes ），不改动用户 config
+    content_metric = _CONTENT_METRIC.get(platform)
+    if content_metric and content_metric not in metrics and data.get(content_metric) is not None:
+        metrics = list(metrics) + [content_metric]
+
     events: list[dict] = []
     account_detail = {"nickname": data.get("nickname")}
     if data.get("avatar"):
         account_detail["avatar"] = data["avatar"]
+    # 最近发布内容的完整结构（正文/配图/评论/互动数）。
+    # 只写进「内容数」那一条快照：原先 followers/following/posts 三条都带
+    # 同一份 recent_posts，一轮采集就把同一份 4KB 数据重复落库 3 遍。
+    recent = data.get("recent_posts")
+    content_metric = _CONTENT_METRIC.get(platform)
+    detailed_metric = content_metric if (content_metric and recent) else None
     for metric in metrics:
         val = data.get(metric)
         if val is None:
             continue
         prev = store.last_snapshot(target_key, "__account__", metric)
-        store.add_snapshot(target_key, platform, "__account__", metric, int(val),
-                           account_detail)
+        detail = account_detail
+        if recent and (metric == detailed_metric or
+                       (detailed_metric is None and metric == metrics[0])):
+            detail = {**account_detail, "recent_posts": recent}
+        store.add_snapshot(target_key, platform, "__account__", metric, int(val), detail)
+
+        # 内容数不生成变更事件，避免和粉丝/关注变动混在一起
+        if metric in _CONTENT_METRICS:
+            continue
         if prev is None:
             continue
         delta = int(val) - int(prev["value"])

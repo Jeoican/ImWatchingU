@@ -76,29 +76,59 @@ class Store:
 
     # ---------- 快照 ----------
     def last_snapshot(self, target_key: str, scope: str, metric: str) -> dict | None:
+        """取最新快照。
+
+        detail 可能因为去重（见 add_snapshot）而存成 NULL，此时回溯最近一条
+        带 detail 的记录——内容相同，语义等价。
+        """
         with self._conn() as c:
             row = c.execute(
-                "SELECT value, detail, captured_at FROM snapshot "
+                "SELECT id, value, detail, captured_at FROM snapshot "
                 "WHERE target_key=? AND scope=? AND metric=? "
-                "ORDER BY captured_at DESC LIMIT 1",
+                "ORDER BY captured_at DESC, id DESC LIMIT 1",
                 (target_key, scope, metric),
             ).fetchone()
-        if not row:
-            return None
+            if not row:
+                return None
+            detail = row["detail"]
+            if detail is None:
+                detail_row = c.execute(
+                    "SELECT detail FROM snapshot "
+                    "WHERE target_key=? AND scope=? AND metric=? AND detail IS NOT NULL "
+                    "ORDER BY captured_at DESC, id DESC LIMIT 1",
+                    (target_key, scope, metric),
+                ).fetchone()
+                detail = detail_row["detail"] if detail_row else None
         return {
             "value": row["value"],
-            "detail": json.loads(row["detail"]) if row["detail"] else {},
+            "detail": json.loads(detail) if detail else {},
             "captured_at": row["captured_at"],
         }
 
     def add_snapshot(self, target_key: str, platform: str, scope: str, metric: str,
                      value: int, detail: dict | None = None) -> None:
+        """写快照。
+
+        detail 与上一次完全相同时只写 value、detail 存 NULL —— 歌单歌曲表
+        这类 detail 单份可达 90KB，而内容往往几十轮都不变，每轮重写会让
+        库里绝大部分体积都是同一份数据的副本（实测冗余占 96%）。
+        读取侧 last_snapshot 会自动回溯最近的非空 detail，语义不变。
+        """
+        payload = json.dumps(detail, ensure_ascii=False, sort_keys=True) if detail else None
         with self._conn() as c:
+            if payload is not None:
+                prev = c.execute(
+                    "SELECT detail FROM snapshot "
+                    "WHERE target_key=? AND scope=? AND metric=? AND detail IS NOT NULL "
+                    "ORDER BY captured_at DESC, id DESC LIMIT 1",
+                    (target_key, scope, metric),
+                ).fetchone()
+                if prev and prev["detail"] == payload:
+                    payload = None
             c.execute(
                 "INSERT INTO snapshot(target_key, platform, scope, metric, value, detail, captured_at) "
                 "VALUES(?,?,?,?,?,?,?)",
-                (target_key, platform, scope, metric, int(value),
-                 json.dumps(detail or {}, ensure_ascii=False), int(time.time())),
+                (target_key, platform, scope, metric, int(value), payload, int(time.time())),
             )
 
     # ---------- 事件 ----------
@@ -169,15 +199,32 @@ class Store:
         return [{"date": k, "value": v} for k, v in daily.items()]
 
     def latest_scopes(self, target_key: str, metric: str) -> list[dict]:
-        """取该目标下每个 scope 的最新快照（用于统计歌单数、歌曲总数等）。"""
+        """取该目标下每个 scope 的最新快照（用于统计歌单数、歌曲总数等）。
+
+        detail 可能因为去重而存成 NULL，这里用一条 SQL 关联出「每 scope
+        最新一条带 detail 的记录」，避免逐行二次查询。
+        """
         with self._conn() as c:
             rows = c.execute(
-                "SELECT s.scope, s.value, s.detail, s.captured_at FROM snapshot s "
-                "JOIN (SELECT scope, MAX(captured_at) mx FROM snapshot "
-                "      WHERE target_key=? AND metric=? GROUP BY scope) m "
-                "  ON s.scope=m.scope AND s.captured_at=m.mx "
-                "WHERE s.target_key=? AND s.metric=?",
-                (target_key, metric, target_key, metric),
+                "WITH latest AS ("
+                "  SELECT scope, MAX(captured_at) mx FROM snapshot"
+                "  WHERE target_key=? AND metric=? GROUP BY scope"
+                "), top AS ("
+                "  SELECT s.scope, s.value, s.captured_at, s.detail, s.id,"
+                "         ROW_NUMBER() OVER (PARTITION BY s.scope ORDER BY s.id DESC) rn"
+                "  FROM snapshot s JOIN latest m"
+                "    ON s.scope=m.scope AND s.captured_at=m.mx"
+                "  WHERE s.target_key=? AND s.metric=?"
+                "), det AS ("
+                "  SELECT scope, detail FROM ("
+                "    SELECT scope, detail, ROW_NUMBER() OVER (PARTITION BY scope ORDER BY id DESC) rn"
+                "    FROM snapshot WHERE target_key=? AND metric=? AND detail IS NOT NULL"
+                "  ) WHERE rn=1"
+                ") "
+                "SELECT t.scope, t.value, t.captured_at, COALESCE(t.detail, d.detail) detail"
+                " FROM (SELECT * FROM top WHERE rn=1) t"
+                " LEFT JOIN det d ON d.scope = t.scope",
+                (target_key, metric, target_key, metric, target_key, metric),
             ).fetchall()
         out = []
         for r in rows:

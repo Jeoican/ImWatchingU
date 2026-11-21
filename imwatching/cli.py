@@ -1,4 +1,4 @@
-"""命令行入口：login / check / run / log / status / daemon"""
+"""命令行入口：login / check / run / log / status / resolve / notify-test"""
 from __future__ import annotations
 
 import argparse
@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 from . import config
+from . import notify
 from .core import engine
 from .platforms import browser as platforms
 from .platforms import netease
@@ -134,6 +135,12 @@ def check_one(store: Store, target: dict, browser_box: dict) -> tuple[str, str, 
             if notes:
                 msg += " | " + "; ".join(notes)
 
+        # 内容归档（原文/原图/作者互动评论）。完全独立于上面的事件比对，
+        # 失败只记日志，不影响粉丝数等主数据的采集结果。
+        arch = _archive_content(target, data, browser_box.get("browser"), opts)
+        if arch:
+            msg += " | " + arch
+
         store.add_events(events)
         store.log_run(f"{plat}:{target['id']}", plat, "ok", msg, int((time.time() - t0) * 1000))
         return "ok", msg, events
@@ -141,6 +148,61 @@ def check_one(store: Store, target: dict, browser_box: dict) -> tuple[str, str, 
         err = f"{type(e).__name__}: {e}"
         store.log_run(f"{plat}:{target['id']}", plat, "error", err, int((time.time() - t0) * 1000))
         return "error", err, []
+
+
+def _archive_content(target: dict, data: dict, br, opts: dict) -> str:
+    """把内容归档落库（微博 / 小红书）。抖音内容采集尚未实现。
+
+    返回一句人类可读的统计，失败返回空串——归档是增强功能，
+    绝不能因为它而让整轮巡检失败。
+    """
+    plat = target.get("platform")
+    if plat not in ("weibo", "xiaohongshu") or br is None:
+        return ""
+    if not (opts.get("archive", True)):
+        return ""
+    try:
+        from .core import archive as arc
+        from .core import archive_collect as collector
+        from . import config as _cfg
+
+        target_key = f"{plat}:{target['id']}"
+        conn = arc.connect(_cfg.DB)
+        page = br.new_page()
+        try:
+            if plat == "weibo":
+                page.goto(f"https://weibo.com/u/{target['id']}",
+                          wait_until="domcontentloaded", timeout=40000)
+                page.wait_for_timeout(1800)
+                st = collector.collect_weibo(page, target_key, target["id"], conn,
+                                             _cfg.archive_root())
+                dead = collector.probe_deleted(page, conn, target_key, "weibo")
+            else:
+                st = collector.collect_xiaohongshu(page, target_key, target["id"],
+                                                   conn, _cfg.archive_root())
+                dead = 0
+        finally:
+            page.close()
+        conn.commit()
+        conn.close()
+        bits = [f"归档 {st['posts']} 条(新 {st['new']})",
+                f"图 {st['media_saved']} 张"]
+        if st.get("notes_visited"):
+            bits.append(f"详情页 {st['notes_visited']}")
+        if st.get("detail_fail"):
+            bits.append(f"详情失败 {st['detail_fail']}")
+        if st.get("comments"):
+            bits.append(f"作者评论 {st['comments']}")
+        if st.get("hidden"):
+            bits.append(f"隐藏 {st['hidden']}")
+        if dead:
+            bits.append(f"确认删除 {dead}")
+        if st.get("media_bytes"):
+            bits.append(f"{st['media_bytes'] / 1024 / 1024:.1f}MB")
+        return "归档：" + " ".join(bits)
+    except Exception as e:  # noqa: BLE001
+        return f"归档失败({type(e).__name__})"
+
 
 
 # ---------------------------------------------------------------- 命令
@@ -246,6 +308,7 @@ def cmd_check(args):
     )
     box: dict = {}
     total_events = 0
+    results: list[dict] = []
     try:
         if need_browser:
             box["browser"] = make_browser(headless=cfg.get("browser_headless", True)).__enter__()
@@ -256,11 +319,27 @@ def cmd_check(args):
             for e in events:
                 print("    " + format_event(e))
             total_events += len(events)
+            results.append({
+                "target": t.get("name") or t["id"],
+                "platform": t["platform"],
+                "id": t["id"],
+                "status": status,
+                "message": msg,
+                "events": events,
+            })
     finally:
         if "browser" in box:
             box["browser"].__exit__()
 
     print(f"\n本次共记录 {total_events} 条变更。")
+    notify_status = notify.dispatch(cfg, results)
+    for ch, st in (notify_status.get("channels") or {}).items():
+        if st.get("ok"):
+            print(f"  [{ch}] 通知已发送")
+        elif st.get("skipped"):
+            print(f"  [{ch}] 通知未配置：{st.get('reason')}")
+        else:
+            print(f"  [{ch}] 通知失败：{st.get('error')}")
 
 
 def format_event(e: dict) -> str:
@@ -383,9 +462,99 @@ def cmd_resolve(args):
                 print("uid:", uid, "domain:", dom)
 
 
+def cmd_notify_test(args):  # noqa: ARG001
+    """验证 Server酱 / Bark 密钥是否配置正确（不跑巡检、不发真实变更）。"""
+    cfg = load_cfg()
+    channels = notify.enabled_channels(cfg)
+    if not channels:
+        print("通知未开启。请先在 config.yaml 里设置：")
+        print("  notify:\n    enabled: true\n    channels: {serverchan: true, bark: true}")
+        return
+    status = notify.send_test(cfg)
+    for ch in channels:
+        st = (status.get("channels") or {}).get(ch, {})
+        if st.get("ok"):
+            print(f"  [{ch}] 测试消息已发送")
+        elif st.get("skipped"):
+            print(f"  [{ch}] 未配置：{st.get('reason')}")
+        else:
+            print(f"  [{ch}] 失败：{st.get('error') or status.get('error') or '未知错误'}")
+
+
+def cmd_token(args):
+    """管理访问 Token：签发 / 列出 / 吊销 / 开关鉴权。
+
+    为什么需要 CLI 而不只靠网页：第一次签发时还没有任何凭证，
+    网页端自己都进不去。命令行是唯一的 bootstrap 入口。
+    """
+    from .core import auth as _auth
+
+    store = _auth.AuthStore(config.auth_file())
+    act = args.action
+
+    if act == "issue":
+        try:
+            tok = store.issue(args.name, getattr(args, "note", "") or "")
+        except ValueError as e:
+            print(f"失败：{e}")
+            return
+        print("已签发。这串 Token **只显示这一次**，请立刻保存：\n")
+        print(f"  {tok}\n")
+        print("用法：")
+        print("  网页端 —— 打开看板，粘贴到登录框")
+        print(f"  App/脚本 —— 请求头 Authorization: Bearer {tok[:12]}…")
+        print(f"  存于 {config.auth_file()}（仅哈希，明文不留存）")
+        return
+
+    if act == "list":
+        rows = store.public_list()
+        if not rows:
+            print("还没有任何 Token。用 `cli.py token issue --name 名字` 签发。")
+            return
+        state = "已启用" if store.enabled() else "已关闭"
+        print(f"鉴权{state}，共 {len(rows)} 枚：\n")
+        for t in rows:
+            created = time.strftime("%Y-%m-%d %H:%M", time.localtime(t.get("created_at") or 0))
+            used = ("从未使用" if not t.get("last_used_at")
+                    else time.strftime("%Y-%m-%d %H:%M", time.localtime(t["last_used_at"])))
+            note = f"  {t['note']}" if t.get("note") else ""
+            print(f"  {t['name']:<22} 签发 {created}  最近使用 {used}{note}")
+        return
+
+    if act == "revoke":
+        if store.revoke(args.name):
+            print(f"已吊销：{args.name}")
+            print("这台设备的下次请求就会 401 —— 网页 Cookie 里存的就是同一串 "
+                  "Token，每次请求都会重新校验，所以吊销立即生效，不必等 Cookie 过期。")
+        else:
+            print(f"没有这个 Token：{args.name}")
+        return
+
+    if act == "disable":
+        store.disable()
+        print("已关闭鉴权 —— 接口重新对外开放，请确认服务只在可信网络内可达。")
+        return
+
+    if act == "enable":
+        if store.enable():
+            print("已重新启用鉴权。")
+        else:
+            print("无法启用：还没有任何 Token，先 issue 一枚。")
+        return
+
+    print(f"未知操作：{act}")
+
+
 def main():
     p = argparse.ArgumentParser(description="社媒账号监控")
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    sp = sub.add_parser("token", help="管理访问 Token（签发/列出/吊销）")
+    sp.add_argument("action", choices=["issue", "list", "revoke", "enable", "disable"])
+    sp.add_argument("--name", "-n", default="",
+                    help="Token 名称，如 iphone-14pro / macbook-web（issue/revoke 用）")
+    sp.add_argument("--note", default="", help="备注，如「主力机 App」")
+    sp.set_defaults(func=cmd_token)
 
     sp = sub.add_parser("login", help="登录某平台，保存 cookie")
     sp.add_argument("platform", choices=["netease", "douyin", "weibo", "xiaohongshu"])
@@ -412,6 +581,9 @@ def main():
     sp.add_argument("platform", choices=["netease", "weibo", "douyin", "xiaohongshu"])
     sp.add_argument("value")
     sp.set_defaults(func=cmd_resolve)
+
+    sp = sub.add_parser("notify-test", help="测试微信/Bark 通知是否配置成功")
+    sp.set_defaults(func=cmd_notify_test)
 
     args = p.parse_args()
     try:

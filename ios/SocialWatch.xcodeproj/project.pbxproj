@@ -1,0 +1,385 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A1000001 /* SocialWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000001 /* SocialWatchApp.swift */; };
+		A1000002 /* ArchiveModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000002 /* ArchiveModels.swift */; };
+		A1000003 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000003 /* APIClient.swift */; };
+		A1000004 /* ArchiveListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000004 /* ArchiveListView.swift */; };
+		A1000005 /* ArchiveDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000005 /* ArchiveDetailView.swift */; };
+		A1000006 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000006 /* LoginView.swift */; };
+		A1000007 /* RemoteImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000007 /* RemoteImage.swift */; };
+		A1000008 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000008 /* Assets.xcassets */; };
+		A1000009 /* StartupProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000A /* StartupProbe.swift */; };
+		A100000A /* DashboardModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000B /* DashboardModels.swift */; };
+		A100000B /* DashboardViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000C /* DashboardViewModel.swift */; };
+		A100000C /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000D /* DashboardView.swift */; };
+		A100000D /* TargetListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000E /* TargetListView.swift */; };
+		A100000E /* ChangeRecordView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200000F /* ChangeRecordView.swift */; };
+		A1000010 /* PlatformLoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000011 /* PlatformLoginView.swift */; };
+		A1000011 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000012 /* SettingsView.swift */; };
+		A1000012 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013 /* NotificationManager.swift */; };
+		A1000013 /* MusicModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000014 /* MusicModels.swift */; };
+		A1000014 /* MusicViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015 /* MusicViews.swift */; };
+		A1000015 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016 /* AudioPlayer.swift */; };
+		A1000016 /* DataCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017 /* DataCache.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A2000001 /* SocialWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocialWatchApp.swift; sourceTree = "<group>"; };
+		A2000002 /* ArchiveModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveModels.swift; sourceTree = "<group>"; };
+		A2000003 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		A2000004 /* ArchiveListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveListView.swift; sourceTree = "<group>"; };
+		A2000005 /* ArchiveDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveDetailView.swift; sourceTree = "<group>"; };
+		A2000006 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		A2000007 /* RemoteImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteImage.swift; sourceTree = "<group>"; };
+		A2000008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A2000009 /* SocialWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SocialWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A200000A /* StartupProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupProbe.swift; sourceTree = "<group>"; };
+		A200000B /* DashboardModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardModels.swift; sourceTree = "<group>"; };
+		A200000C /* DashboardViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardViewModel.swift; sourceTree = "<group>"; };
+		A200000D /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		A200000E /* TargetListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetListView.swift; sourceTree = "<group>"; };
+		A200000F /* ChangeRecordView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChangeRecordView.swift; sourceTree = "<group>"; };
+		A2000011 /* PlatformLoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformLoginView.swift; sourceTree = "<group>"; };
+		A2000012 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A2000013 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		A2000014 /* MusicModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicModels.swift; sourceTree = "<group>"; };
+		A2000015 /* MusicViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicViews.swift; sourceTree = "<group>"; };
+		A2000016 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
+		A2000017 /* DataCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataCache.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A3000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A4000001 = {
+			isa = PBXGroup;
+			children = (
+				A4000002 /* SocialWatch */,
+				A4000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A4000002 /* SocialWatch */ = {
+			isa = PBXGroup;
+			children = (
+				A2000001 /* SocialWatchApp.swift */,
+				A4000004 /* Models */,
+				A4000005 /* Networking */,
+				A4000006 /* Views */,
+				A4000007 /* Components */,
+				A2000008 /* Assets.xcassets */,
+				A4000008 /* ViewModels */,
+				A4000009 /* Services */,
+			);
+			path = SocialWatch;
+			sourceTree = "<group>";
+		};
+		A4000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A2000009 /* SocialWatch.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A4000004 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				A2000002 /* ArchiveModels.swift */,
+				A200000B /* DashboardModels.swift */,
+				A2000014 /* MusicModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		A4000005 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				A2000003 /* APIClient.swift */,
+				A200000A /* StartupProbe.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		A4000006 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				A2000004 /* ArchiveListView.swift */,
+				A2000005 /* ArchiveDetailView.swift */,
+				A2000006 /* LoginView.swift */,
+				A200000D /* DashboardView.swift */,
+				A200000E /* TargetListView.swift */,
+				A200000F /* ChangeRecordView.swift */,
+				A2000011 /* PlatformLoginView.swift */,
+				A2000012 /* SettingsView.swift */,
+				A2000015 /* MusicViews.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A4000007 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				A2000007 /* RemoteImage.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+
+		A4000008 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				A200000C /* DashboardViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+
+		A4000009 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				A2000013 /* NotificationManager.swift */,
+				A2000016 /* AudioPlayer.swift */,
+				A2000017 /* DataCache.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A5000001 /* SocialWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A7000002 /* Build configuration list for PBXNativeTarget "SocialWatch" */;
+			buildPhases = (
+				A3000002 /* Sources */,
+				A3000001 /* Frameworks */,
+				A3000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SocialWatch;
+			productName = SocialWatch;
+			productReference = A2000009 /* SocialWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A6000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2720;
+				LastUpgradeCheck = 2720;
+				TargetAttributes = {
+			A5000001 = {
+					CreatedOnToolsVersion = 27.2;
+					ProvisioningStyle = Automatic;
+				};
+				};
+			};
+			buildConfigurationList = A7000001 /* Build configuration list for PBXProject "SocialWatch" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = zh_Hans;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				zh_Hans,
+				en,
+				Base,
+			);
+			mainGroup = A4000001;
+			productRefGroup = A4000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A5000001 /* SocialWatch */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A3000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000008 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A3000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000001 /* SocialWatchApp.swift in Sources */,
+				A1000002 /* ArchiveModels.swift in Sources */,
+				A1000003 /* APIClient.swift in Sources */,
+				A1000004 /* ArchiveListView.swift in Sources */,
+				A1000005 /* ArchiveDetailView.swift in Sources */,
+				A1000006 /* LoginView.swift in Sources */,
+				A1000007 /* RemoteImage.swift in Sources */,
+				A1000009 /* StartupProbe.swift in Sources */,
+				A100000A /* DashboardModels.swift in Sources */,
+				A100000B /* DashboardViewModel.swift in Sources */,
+				A100000C /* DashboardView.swift in Sources */,
+				A100000D /* TargetListView.swift in Sources */,
+				A100000E /* ChangeRecordView.swift in Sources */,
+				A1000010 /* PlatformLoginView.swift in Sources */,
+				A1000011 /* SettingsView.swift in Sources */,
+				A1000012 /* NotificationManager.swift in Sources */,
+				A1000013 /* MusicModels.swift in Sources */,
+				A1000014 /* MusicViews.swift in Sources */,
+				A1000015 /* AudioPlayer.swift in Sources */,
+				A1000016 /* DataCache.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A8000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A8000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A8000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "SocialWatch/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jeoi.socialwatch.dev;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A8000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "SocialWatch/Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jeoi.socialwatch;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A7000001 /* Build configuration list for PBXProject "SocialWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A8000001 /* Debug */,
+				A8000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A7000002 /* Build configuration list for PBXNativeTarget "SocialWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A8000003 /* Debug */,
+				A8000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A6000001 /* Project object */;
+}

@@ -9,6 +9,33 @@
 #   metrics: [followers, following]      —— 数值型指标
 #   people: [following, followers]       —— 精确到人（关注了谁 / 谁关注了TA）
 #   max_users: 500                       —— 列表最多读多少人（大号粉丝可能千万级）
+#   archive: true                        —— 是否归档原文+原图+作者互动评论（默认开）
+#
+# 内容归档说明：
+#   * 原文与评论存 SQLite（data/watch.db 的 content / content_comment 表）
+#   * 图片存文件系统（data/archive/<平台_uid>/<帖子id>/01.jpg），不塞进数据库
+#   * 画质：微博取 largest（/large/ 路径，实测 4126×5556、单张 3–7MB）；
+#     小红书取详情页 imageList 的原图（实测 1920×2560、单张 300–800KB）
+#   * 只增不删：平台上删帖后存档保留，仅标记 state=deleted，前端灰显+删除线
+#   * 微博 mymblog 有硬上限（实测只有前 45 条可翻），窗口外的内容标 hidden
+#     而非 deleted —— "抓不到"不等于"被删了"
+#   * 评论只存作者互动过的（作者本人回复 / 作者点赞），其余不入库
+#
+# 小红书为什么必须开详情页：
+#   用户主页 SSR 的 noteCard 只暴露封面 1 张（cover.urlDefault），
+#   9 图笔记在主页也显示成 1 张。详情页 /explore/<noteId>?xsec_token=...
+#   的 SSR 才是完整 imageList。xsecToken 就在主页卡片里，必须一并带过去，
+#   否则详情页 SSR 为空（noteDetailMap 的 key 会是 "undefined"）。
+#
+# 缩略图（自动生成，可随时删除重建，不必备份）：
+#   * data/archive/_thumbs/900/  详情页预览图，长边 900px、约 100KB
+#   * data/archive/_thumbs/200/  列表小图，长边 200px、约 8KB
+#   原图只在点开大图时才取。三档差两个数量级：8KB / 100KB / 3–7MB。
+#
+# 体积参考：45 条微博 × 平均 5.6 图 ≈ 254 张原图 ≈ 760MB；
+# 12 条小红书 × 平均 9 图 ≈ 108 张原图 ≈ 40MB。
+# 每人每月新增 10 条含 9 图的内容，年增约 5–19GB。可用 SW_ARCHIVE_ROOT
+# 环境变量把图片目录指到独立磁盘。
 #
 # 容器部署时这个文件会被挂载进 /app/config.yaml，
 # 也可以直接在 Web 看板的「目标管理」里增删改，改动实时写回本文件。
@@ -19,6 +46,19 @@ poll_interval_minutes: 60
 
 # 容器内必须为 true（容器没有图形界面）
 browser_headless: true
+
+# 数据变动推送（可选）。一轮巡检的所有变更会合并成一条消息。
+# 密钥只从环境变量读取，绝不写进 config.yaml：
+#   SW_NOTIFY_SERVERCHAN_KEY  Server酱 Turbo 的 SCT SendKey（推微信）
+#   SW_NOTIFY_BARK_KEY        Bark device key（推 iPhone）
+#   SW_NOTIFY_BARK_SERVER     自建 Bark 服务地址，默认 https://api.day.app
+#   SW_DASHBOARD_URL          看板地址，可选
+notify:
+  enabled: false
+  channels:
+    serverchan: false
+    bark: false
+  max_names_per_group: 10
 
 targets:
 - name: 示例-网易云某用户
@@ -52,3 +92,4 @@ targets:
   enabled: false
   options:
     metrics: [followers, following]
+    # 归档会自动开详情页补全多图，无需额外配置

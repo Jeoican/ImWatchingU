@@ -6,6 +6,9 @@ import time
 from pathlib import Path
 
 PLAT_NAME = {"netease": "网易云音乐", "weibo": "微博", "douyin": "抖音", "xiaohongshu": "小红书"}
+# 各平台"发布内容数"的展示名称与快照 metric
+CONTENT_METRIC = {"weibo": "posts", "douyin": "works", "xiaohongshu": "notes"}
+CONTENT_LABEL = {"posts": "微博", "works": "作品", "notes": "笔记"}
 
 EVENT_STYLE = {
     "track_added":    ("新增歌曲", "add"),
@@ -19,6 +22,23 @@ EVENT_STYLE = {
     "person_fan_added":      ("新粉丝", "add"),
     "person_fan_removed":    ("掉粉", "del"),
 }
+
+
+def _norm_posts(raw) -> list[dict]:
+    """统一「最近发布内容」的结构。
+
+    采集层早期只存纯字符串标题，现在存成 dict（正文/配图/评论/互动数）。
+    这里把两种形态都归一成 dict，让前端只处理一种结构。
+    """
+    out: list[dict] = []
+    for p in (raw or [])[:8]:
+        if isinstance(p, str):
+            if p.strip():
+                out.append({"text": p.strip()})
+            continue
+        if isinstance(p, dict) and (p.get("text") or p.get("images")):
+            out.append(p)
+    return out
 
 
 def _fmt_time(ts: int) -> str:
@@ -53,10 +73,12 @@ def _playlist_details(store, cfg: dict) -> list[dict]:
         for pid in ids:
             snap = store.last_snapshot(key, pid, "tracks")
             track_count = snap["value"] if snap else 0
-            songs = (snap.get("detail") or {}).get("songs") or {}
             evs = [e for e in store.recent_events(limit=2000, target_key=key)
                    if e.get("scope") == pid]
             snap_detail = snap.get("detail") or {}
+            # 注意：这里刻意不返回 songs（全量歌曲表）。
+            # 1033 首的歌单该字段单份 86KB，占 /api/state 体积 99%，
+            # 而前端从未渲染它——它只服务于采集侧的 diff，不需要出接口。
             out.append({
                 "target_key": key,
                 "target": t.get("name") or t["id"],
@@ -66,70 +88,13 @@ def _playlist_details(store, cfg: dict) -> list[dict]:
                 "track_count": track_count,
                 "added": [e["item_name"] for e in evs if e["event_type"] == "track_added"],
                 "removed": [e["item_name"] for e in evs if e["event_type"] == "track_removed"],
-                "songs": [{"name": s.get("name"), "artists": s.get("artists"),
-                           "album": s.get("album")} for s in songs.values()],
                 "events": evs[:40],
             })
     return out
 
 
-def _playlist_groups(store, cfg: dict, days: int = 30) -> list[dict]:
-    """按歌单聚合变更：哪个歌单新增/移除了哪些歌。
-
-    只对网易云目标有意义（其它平台没有歌单概念）。
-    """
-    import time as _t
-    since = int(_t.time()) - days * 86400
-    groups: dict[str, dict] = {}
-    with store._conn() as c:
-        rows = c.execute(
-            "SELECT target_key, scope, scope_name, event_type, item_name, item_extra, "
-            "       detected_at FROM event "
-            "WHERE event_type IN ('track_added','track_removed','playlist_added','playlist_removed') "
-            "  AND detected_at>=? ORDER BY detected_at DESC",
-            (since,),
-        ).fetchall()
-
-    names: dict[str, str] = {}
-    for t in (cfg.get("targets") or []):
-        if t.get("platform") == "netease":
-            names[f"netease:{t['id']}"] = t.get("name") or t["id"]
-
-    for r in rows:
-        key = r["target_key"]
-        # 目标已被删除/替换时，历史记录不再展示（避免混淆）
-        if key not in names:
-            continue
-        scope = r["scope"] or ""
-        gkey = f"{key}||{scope}"
-        g = groups.setdefault(gkey, {
-            "target_key": key,
-            "target": names.get(key, key),
-            "scope": scope,
-            "name": r["scope_name"] or scope,
-            "added": [],
-            "removed": [],
-            "playlist_added": False,
-            "playlist_removed": False,
-            "last_at": r["detected_at"],
-        })
-        if r["event_type"] == "track_added":
-            g["added"].append(r["item_name"])
-        elif r["event_type"] == "track_removed":
-            g["removed"].append(r["item_name"])
-        elif r["event_type"] == "playlist_added":
-            g["playlist_added"] = True
-        elif r["event_type"] == "playlist_removed":
-            g["playlist_removed"] = True
-        g["last_at"] = max(g["last_at"], r["detected_at"])
-
-    out = list(groups.values())
-    out.sort(key=lambda g: -g["last_at"])
-    return out
-
-
 def collect_payload(store, cfg: dict, event_limit: int = 800,
-                    per_card_limit: int = 60) -> dict:
+                    per_card_limit: int = 200) -> dict:
     """聚合监控数据。静态报表与 Web API 共用此函数，保证两处口径一致。"""
     targets = cfg.get("targets") or []
     events = store.recent_events(limit=event_limit)
@@ -181,6 +146,14 @@ def collect_payload(store, cfg: dict, event_limit: int = 800,
             snap2 = store.last_snapshot(key, "__account__", "following")
             if snap2:
                 head["关注"] = snap2["value"]
+            # 发布内容数（微博数 / 作品数 / 笔记数）
+            cm = CONTENT_METRIC.get(plat)
+            if cm:
+                snap3 = store.last_snapshot(key, "__account__", cm)
+                if snap3:
+                    if head is None:
+                        head = {}
+                    head[CONTENT_LABEL.get(cm, cm)] = snap3["value"]
 
         series = []
         for metric in ("followers", "following"):
@@ -196,9 +169,23 @@ def collect_payload(store, cfg: dict, event_limit: int = 800,
                 avatar = _https(snap["detail"]["avatar"])
                 break
 
+        # 最近发布内容：从账号快照 detail 里取（采集时顺带存下的正文/配图/评论）
+        # recent_posts 只挂在「内容数」那条快照上（见 engine.watch_counts），
+        # 其余 metric 仅作旧数据兼容的兜底。
+        recent_posts: list[dict] = []
+        cm = CONTENT_METRIC.get(plat)
+        for m in ([cm] if cm else []) + ["followers", "following"]:
+            if not m:
+                continue
+            s = store.last_snapshot(key, "__account__", m)
+            if s and (s.get("detail") or {}).get("recent_posts"):
+                recent_posts = _norm_posts(s["detail"]["recent_posts"])
+                break
+
         cards.append({
             "name": t.get("name") or t["id"],
             "platform": PLAT_NAME.get(plat, plat),
+            "platform_key": plat,
             "key": key,
             "enabled": bool(t.get("enabled")),
             "avatar": avatar,
@@ -207,12 +194,12 @@ def collect_payload(store, cfg: dict, event_limit: int = 800,
             "series": series,
             "events": evs[:per_card_limit],
             "playlists": pl_by_target.get(key, []),
+            "recent_posts": recent_posts,
         })
 
     return {"generated_at": _fmt_time(int(time.time())), "cards": cards,
             "runs": [{"time": _fmt_time(r["ran_at"]), "status": r["status"],
-                      "target": r["target_key"], "message": r["message"]} for r in runs],
-            "playlists": _playlist_groups(store, cfg)}
+                      "target": r["target_key"], "message": r["message"]} for r in runs]}
 
 
 def build(store, cfg: dict, out_path: Path) -> Path:
@@ -249,10 +236,11 @@ h1{font-size:22px;font-weight:500;letter-spacing:-.2px}
 .avatar.ph{display:inline-flex;align-items:center;justify-content:center;font-size:15px;color:var(--muted)}
 .pill{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:20px;padding:1px 9px;font-weight:400}
 .off{color:#b9b9b3}
-.stats{display:flex;gap:22px;margin:14px 0 6px;flex-wrap:wrap}
-.stat .n{font-size:20px;font-weight:500;font-variant-numeric:tabular-nums}
+.stats{display:flex;gap:8px;margin:14px 0 6px;flex-wrap:nowrap}
+.stat{flex:1 1 0;min-width:0}
+.stat .n{font-size:17px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
 .stat .n.add{color:var(--add)} .stat .n.del{color:var(--del)}
-.stat .l{font-size:12px;color:var(--muted)}
+.stat .l{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 canvas{margin-top:14px;width:100%;height:110px}
 .events{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
 .ev{display:flex;gap:10px;padding:5px 0;font-size:13px;align-items:baseline}

@@ -80,6 +80,9 @@ def tick() -> None:
         for r in res["results"]:
             icon = "✅" if r["status"] == "ok" else "❌"
             print(f"   {icon} [{r['platform']}] {r['target']} — {r['message']}", flush=True)
+        for ch, st in ((res.get("notify") or {}).get("channels") or {}).items():
+            if not st.get("ok") and not st.get("skipped"):
+                print(f"   ⚠️ 通知[{ch}]发送失败：{st.get('error') or '未知错误'}", flush=True)
     except Exception as e:  # noqa: BLE001
         with _status_lock:
             _status["last_result"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}

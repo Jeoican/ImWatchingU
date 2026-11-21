@@ -42,7 +42,10 @@ DISPLAY = ":99"
 LOGIN_URLS = {
     "netease": "https://music.163.com/#/login",
     "douyin": "https://www.douyin.com/",
-    "weibo": "https://weibo.com/",
+    # 微博不要用 weibo.com 首页：游客态会被 passport visitor 机制重定向回首页
+    # 信息流，点「登录/注册」还会在新标签页反复开 newlogin，二维码始终不出现。
+    # 直接用官方 passport 登录页，二维码直接渲染在页面上。
+    "weibo": "https://passport.weibo.com/sso/signin",
     "xiaohongshu": "https://www.xiaohongshu.com/explore",
 }
 
@@ -58,6 +61,8 @@ LOGIN_MARKERS = {
 
 # 登录界面上可能承载二维码的容器（按优先级排列）
 LOGIN_SHOT_SELECTORS = [
+    # 微博 passport 登录页：二维码父容器 / 整个登录卡片
+    ".w-45.h-45", ".w-82\\.5", "[class*='border-r']",
     ".login-container", ".login-box", ".qrcode-box", ".qr-box",
     ".scan-box", ".login-modal", ".login-panel",
     "[class*='qrcode']", "[class*='qr-code']", "[class*='QRCode']",
@@ -418,8 +423,12 @@ class LoginSession:
         try:
             return bool(page.evaluate(
                 """() => {
-                  const sel = 'canvas, img[src*=qrcode], img[class*=qrcode], ' +
-                              '.qrcode, .qr-code, .login-container, [class*=loginBox]';
+                  // 微博 passport 二维码来自 v2.qr.weibo.cn，src 不含 qrcode 字样
+                  if (location.hostname.indexOf('passport.weibo.com') >= 0 &&
+                      document.querySelector('img[src*="qr.weibo.cn"]')) return true;
+                  const sel = 'canvas, img[src*=qrcode], img[src*="qr.weibo"], ' +
+                              'img[class*=qrcode], .qrcode, .qr-code, ' +
+                              '.login-container, [class*=loginBox]';
                   const els = document.querySelectorAll(sel);
                   for (const el of els) {
                     const r = el.getBoundingClientRect();
@@ -530,10 +539,38 @@ class LoginSession:
     _LOGIN_COOKIES = {
         "netease": ("music.163.com", ("MUSIC_U",)),
         "douyin": ("douyin.com", ("sessionid", "sessionid_ss", "sid_tt")),
-        "weibo": ("weibo.com", ("SUBP",)),
-        # 游客态也有 web_session，只有 id_token 是登录态专属
+        # 微博游客态访问首页就会自动种下 SUBP，用它判定会在「什么都没干」时
+        # 误报登录成功，登录会话瞬间结束、二维码根本来不及显示。
+        # 这里刻意不列 weibo，强制走下方 cookie_status() 的
+        # /ajax/profile/info isLogin 接口验证（游客态 isLogin=false）。
+        # 小红书游客态也有 web_session，只有 id_token 是登录态专属。
         "xiaohongshu": ("xiaohongshu.com", ("id_token",)),
     }
+
+    def _weibo_strict_logged_in(self, ctx) -> bool:
+        """微博登录会话专用判定：检测登录态专属 cookie。
+
+        历史教训（两次踩坑，务必保留注释）：
+          1. 最早用 SUBP 判定 —— 微博游客态访问首页就会种下 SUBP，导致
+             「什么都没干就提示登录成功」，二维码来不及显示。
+          2. 后来改调 /ajax/profile/info 看 isLogin/more —— 2026-11 微博接口
+             改版移除了这两个字段，登录态与游客态返回完全一致（实测 data 只有
+             user/tabList/blockText），导致扫码成功后永远判定失败、会话卡在
+             waiting、cookie 写不回 state.json，徽章和列表采集都停在游客态。
+
+        现在改用 ALF / SSOLoginState：这是微博登录态专属 cookie，游客态访问
+        任何页面都不会种下（实测游客态只有 SUB/SUBP/WBPSESS/tid）。本地判定，
+        不依赖会变的接口字段，稳定可靠。
+        """
+        try:
+            dom = ctx.cookies()
+        except Exception:  # noqa: BLE001
+            return False
+        for c in dom:
+            if c.get("name") in ("ALF", "SSOLoginState") and \
+                    "weibo" in c.get("domain", ""):
+                return True
+        return False
 
     def _logged_in(self, ctx) -> bool:
         """检测是否已登录。ctx 是 BrowserContext。
@@ -543,6 +580,9 @@ class LoginSession:
         cookie 兜底，于是「页面明明已登录」却永远检测不到、登录会话卡在 waiting。
         现在直接用模块级函数 + 本地 cookie 双重判定。
         """
+        # 微博走专用严格判定：游客态 SUBP 不能作数，接口探测失败也不算成功
+        if self.platform == "weibo":
+            return self._weibo_strict_logged_in(ctx)
         try:
             dom = ctx.cookies()
         except Exception:  # noqa: BLE001
@@ -551,7 +591,7 @@ class LoginSession:
         if domain and any(c["name"] in names
                           for c in dom if domain in c.get("domain", "")):
             return True
-        # 再走一次基于页面的检测（微博等需要确认接口返回值）
+        # 再走一次基于页面的检测（其它平台需要确认接口返回值）
         try:
             st = platforms.cookie_status(ctx)
             if st.get(self.platform):

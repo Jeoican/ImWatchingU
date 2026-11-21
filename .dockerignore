@@ -20,6 +20,10 @@ report.html
 *.log
 .DS_Store
 
+# 通知密钥等机密：绝不进镜像
+.env
+.env.*
+
 # 不需要打进镜像的辅助文件
 com.socialwatch.plist
 run.sh

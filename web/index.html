@@ -43,6 +43,10 @@ h1{font-size:21px;font-weight:600;letter-spacing:-.3px}
   box-shadow:var(--shadow);display:flex;flex-direction:column}
 .card.clickable{cursor:pointer}
 .card.clickable:hover{border-color:#d0d0ca}
+.arcbtn{display:block;width:100%;text-align:left;margin-top:12px;padding:7px 11px;
+  border:1px solid var(--line);border-radius:8px;background:#fcfcfb;cursor:pointer;
+  font-family:inherit;font-size:12.5px;color:var(--text);font-variant-numeric:tabular-nums}
+.arcbtn:hover{border-color:#c9c9c3;background:#f7f7f5}
 .card h2{font-size:15px;font-weight:600;display:flex;align-items:center;gap:7px;flex-wrap:nowrap}
 .card h2 .cname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card h2 .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);
@@ -57,34 +61,84 @@ h1{font-size:21px;font-weight:600;letter-spacing:-.3px}
 .avatar.ph{display:inline-flex;align-items:center;justify-content:center;
   font-size:15px;color:var(--muted);background:#f2f2f0}
 .detail-avatar{width:52px;height:52px;font-size:24px}
-.plcover{width:38px;height:38px;border-radius:7px;object-fit:cover;flex:0 0 auto;
+.plcover{width:38px;height:38px;border-radius:7px;object-fit:cover;flex:0 0 38px;
   border:1px solid var(--line);background:#f2f2f0}
+.plcover.ph{display:inline-block}
 
 /* 展开后的歌单明细 */
-.plist{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
-.plrow2{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);align-items:flex-start}
+.plist{margin-top:14px;border-top:1px solid var(--line);padding-top:4px}
+/* 每个歌单独立成块：首行是「封面 + 歌单名 + 曲目数」，
+   变更记录另起一块缩进显示。这样封面/名称/数量永远在同一条水平线上，
+   变更再多也只是往下长，不会把计数挤偏。 */
+.plrow2{padding:10px 0;border-bottom:1px solid var(--line)}
 .plrow2:last-child{border-bottom:none}
-.plrow2 .nm{font-weight:500;font-size:13px;min-width:150px;flex:0 0 auto}
-.plrow2 .cnt{font-size:11.5px;color:var(--muted);flex:0 0 auto}
-.plrow2 .chg{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.plrow2 .pltop{display:flex;gap:10px;align-items:center}
+.plrow2 .nm{font-weight:500;font-size:13px;flex:1 1 auto;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.plrow2 .cnt{font-size:11.5px;color:var(--muted);flex:0 0 auto;text-align:right;
+  white-space:nowrap;font-variant-numeric:tabular-nums}
+.plrow2 .none{font-size:11.5px;color:var(--muted);flex:0 0 auto;white-space:nowrap}
+.plrow2 .chg{min-width:0;display:flex;flex-direction:column;gap:3px;
+  margin-top:7px;padding-left:48px}
 .plrow2 .chg .line2{font-size:12px;display:flex;gap:6px;align-items:baseline;flex-wrap:wrap}
 .plrow2 .chg .ar{font-size:10.5px;padding:0 5px;border-radius:4px;border:1px solid var(--line);flex:0 0 auto}
 .plrow2 .chg .ar.add{color:var(--add);border-color:#f0cfc9}
 .plrow2 .chg .ar.del{color:var(--del);border-color:#c9e0d2}
-.plrow2 .sng{color:var(--text)}
+.plrow2 .sng{color:var(--text);word-break:break-word}
 .plrow2 .who{color:var(--muted);font-size:11.5px}
+/* 变更条数多时折叠：默认只显示前几条，点按展开全部 */
+.plrow2 .chg .more{font-size:11.5px;color:var(--muted);cursor:pointer;
+  padding:2px 0;align-self:flex-start;user-select:none}
+.plrow2 .chg .more:hover{color:var(--accent)}
+.plrow2 .chg.folded .line2.extra{display:none}
 
-.headline{display:flex;gap:26px;margin:14px 0 4px;flex-wrap:wrap}
-.hl .n{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15}
-.hl .l{font-size:11.5px;color:var(--muted)}
+.headline{display:flex;gap:8px;margin:14px 0 4px;flex-wrap:nowrap}
+.headline .hl{flex:1 1 0;min-width:0}
+.hl .n{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.15;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hl .l{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-.stats{display:flex;gap:20px;margin:12px 0 2px;flex-wrap:wrap}
-.stat .n{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.stats{display:flex;gap:8px;margin:12px 0 2px;flex-wrap:nowrap}
+.stats .stat{flex:1 1 0;min-width:0}
+.stat .n{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 .stat .n.add{color:var(--add)}.stat .n.del{color:var(--del)}
-.stat .l{font-size:11.5px;color:var(--muted)}
+.stat .l{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .events{margin-top:14px;border-top:1px solid var(--line);padding-top:10px;
   max-height:250px;overflow-y:auto}
+/* 最近发布内容 */
+.posts{margin-top:4px}
+.posts .post{display:flex;gap:8px;padding:8px 0;font-size:12.5px;
+  border-bottom:1px dashed var(--line)}
+.posts .post:last-child{border-bottom:none}
+.posts .post .idx{flex:0 0 18px;color:var(--muted);font-size:11px;
+  font-variant-numeric:tabular-nums;padding-top:1px}
+.posts .post .tx{word-break:break-word;color:var(--text);line-height:1.55}
+.posts .pbody{flex:1;min-width:0}
+/* 配图：正方形缩略图，多图横向排列 */
+.posts .pimgs{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;align-items:center}
+.posts .pimgs .pimg{width:64px;height:64px;object-fit:cover;border-radius:6px;
+  border:1px solid var(--line);background:#f2f2f0}
+.posts .pimgs .pmore{font-size:11px;color:var(--muted)}
+/* 转发原文 */
+.posts .prt{margin-top:5px;padding:5px 8px;background:#f8f8f6;border-left:2px solid var(--line);
+  border-radius:3px;font-size:11.5px;color:var(--muted);line-height:1.5}
+/* 互动数 */
+.posts .pstat{display:flex;gap:12px;margin-top:5px;font-size:11px;color:var(--muted)}
+/* 评论 */
+.posts .pcms{margin-top:6px;padding:6px 9px;background:#f8f8f6;border-radius:6px;
+  display:flex;flex-direction:column;gap:4px}
+.posts .pcm{font-size:11.5px;line-height:1.5;display:flex;gap:5px;align-items:baseline;
+  flex-wrap:wrap}
+.posts .pby{color:var(--accent);flex:0 0 auto;font-weight:500}
+.posts .pcm .ptx{color:var(--text);flex:1 1 auto;min-width:0;word-break:break-word}
+.posts .plk{color:var(--muted);font-size:10.5px;flex:0 0 auto}
+.posts .pfoot{margin-top:4px;font-size:11px}
+.posts .plink{color:var(--accent);font-size:11px;text-decoration:none}
+.posts .plink:hover{text-decoration:underline}
+.posts .pvtag{font-size:10px;color:var(--muted);border:1px solid var(--line);
+  border-radius:3px;padding:0 4px}
+.posts .more{font-size:11.5px;color:var(--muted);padding-top:6px}
 .ev{display:flex;gap:9px;padding:5px 0;font-size:12.5px;align-items:baseline}
 .ev .t{color:var(--muted);font-variant-numeric:tabular-nums;font-size:11.5px;flex:0 0 76px}
 .ev .tg{flex:0 0 auto;font-size:10.5px;padding:0 6px;border-radius:4px;border:1px solid var(--line)}
@@ -106,25 +160,6 @@ h3.sec{font-size:13px;font-weight:600;color:var(--muted);margin:30px 0 10px;
 .foldpanel{display:none}
 .foldpanel.open{display:block}
 
-/* 歌单变化 */
-.plgroup{background:var(--card);border:1px solid var(--line);border-radius:12px;
-  padding:14px 16px;box-shadow:var(--shadow);margin-bottom:10px}
-.plhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;cursor:pointer}
-.plhead .nm{font-weight:600;font-size:14px}
-.plhead .tg{font-size:10.5px;padding:1px 7px;border-radius:5px;border:1px solid var(--line)}
-.plhead .tg.add{color:var(--add);border-color:#f0cfc9;background:#fdf6f5}
-.plhead .tg.del{color:var(--del);border-color:#c9e0d2;background:#f4faf6}
-.plhead .when{font-size:11.5px;color:var(--muted);margin-left:auto}
-.plbody{display:none;margin-top:11px;padding-top:11px;border-top:1px solid var(--line)}
-.plgroup.open .plbody{display:block}
-.plrow{display:flex;gap:9px;padding:4px 0;font-size:12.5px;align-items:baseline}
-.plrow .ar{flex:0 0 auto;font-size:10.5px;padding:0 6px;border-radius:4px;border:1px solid var(--line)}
-.plrow .ar.add{color:var(--add);border-color:#f0cfc9}
-.plrow .ar.del{color:var(--del);border-color:#c9e0d2}
-.songs{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px}
-.song{font-size:12px;background:#f5f5f3;border:1px solid var(--line);border-radius:6px;padding:2px 8px}
-.song.add{border-color:#f0cfc9;background:#fdf6f5}
-.song.del{border-color:#c9e0d2;background:#f4faf6;text-decoration:line-through;color:var(--muted)}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;
   padding:14px 16px;box-shadow:var(--shadow)}
 table{width:100%;border-collapse:collapse;font-size:12.5px}
@@ -175,6 +210,37 @@ input:focus,select:focus{border-color:var(--accent)}
 .detailbody h3.sec{margin:20px 0 6px}
 
 /* 登录弹窗 */
+/* ============ 通知推送设置 ============ */
+.nthead{display:flex;align-items:center;gap:14px;padding-bottom:12px;
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+.ntswitch{display:inline-flex;align-items:center;gap:6px;font-size:13px;
+  cursor:pointer;user-select:none;flex:0 0 auto}
+.ntswitch input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin:0}
+.ntrow{display:grid;grid-template-columns:1fr auto;gap:10px 16px;
+  padding:13px 0;border-bottom:1px solid var(--line);align-items:start}
+.ntrow:last-of-type{border-bottom:none}
+.ntlbl{min-width:0}
+.ntname{font-size:13px;font-weight:500;display:flex;gap:7px;align-items:baseline;flex-wrap:wrap}
+.ntst{font-size:11.5px;margin-top:3px;color:var(--muted)}
+.ntst.ok{color:var(--del)}
+.ntst.warn{color:var(--warn)}
+.nthint{font-size:11.5px;color:var(--muted);font-weight:400}
+.ntctl{display:flex;align-items:center;gap:12px}
+.ntfields{grid-column:1/-1;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ntfields input{flex:1 1 220px;min-width:0;font-family:inherit;font-size:12.5px;
+  border:1px solid var(--line);border-radius:7px;padding:6px 10px;background:#fff;color:var(--text)}
+.ntfields input:focus{outline:none;border-color:var(--accent)}
+.ntsub{grid-column:1/-1;display:flex;gap:8px}
+.ntsub input{flex:1 1 100%;font-family:inherit;font-size:12.5px;border:1px solid var(--line);
+  border-radius:7px;padding:6px 10px;background:#fff;color:var(--text)}
+.ntcheck{grid-column:1/-1;display:flex;gap:7px;align-items:flex-start;font-size:12.5px;
+  color:var(--muted);line-height:1.55}
+.ntcheck input{margin:2px 0 0;width:14px;height:14px;accent-color:var(--accent);flex:0 0 auto}
+.ntwarn{grid-column:1/-1;font-size:11.5px;color:var(--warn);line-height:1.6}
+.nthint code{font-size:11px;background:#f2f2f0;padding:1px 5px;border-radius:4px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.ntactions{display:flex;gap:10px;align-items:center;padding-top:14px;flex-wrap:wrap}
+
 .mask{position:fixed;inset:0;background:rgba(20,20,18,.55);backdrop-filter:blur(3px);
   display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
 .mask.show{display:flex}
@@ -186,8 +252,113 @@ input:focus,select:focus{border-color:var(--accent)}
   line-height:1;padding:2px 6px;border-radius:6px}
 .xbtn:hover{background:#f2f2f0;color:var(--text)}
 .modal .body{display:grid;grid-template-columns:300px 1fr;gap:0;min-height:0;flex:1}
-.platlist{padding:14px;border-right:1px solid var(--line);overflow-y:auto;background:#fcfcfb}
-.platbtn{display:block;width:100%;text-align:left;border:1px solid var(--line);background:#fff;
+
+/* ===== 内容库（全屏） ===== */
+.modal.full{width:min(1180px,100%);max-height:94vh;height:94vh}
+.archcnt{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.archbody{flex:1;min-height:0;overflow-y:auto;padding:0}
+.archfoot{padding:10px 20px;border-top:1px solid var(--line);display:flex;
+  align-items:center;gap:10px;min-height:44px}
+/* 列表：每条一行摘要，点击进详情。不做虚拟滚动也能撑住几百条。 */
+.acard{display:flex;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line);
+  cursor:pointer;align-items:flex-start;transition:background .12s}
+.acard:hover{background:#fafaf8}
+.acard.deleted{opacity:.42}
+.acard.deleted .atx{text-decoration:line-through}
+.acard.hidden{opacity:.72}
+.acard .athumbs{display:flex;gap:4px;flex:0 0 auto}
+.acard .athumbs img,.acard .athumbs .ph{width:56px;height:56px;object-fit:cover;
+  border-radius:6px;border:1px solid var(--line);background:#f4f4f2}
+.acard .athumbs .more{width:56px;height:56px;border-radius:6px;border:1px solid var(--line);
+  background:#f4f4f2;display:flex;align-items:center;justify-content:center;
+  font-size:12px;color:var(--muted)}
+.acard .amain{flex:1;min-width:0}
+.acard .atx{font-size:13.5px;line-height:1.55;margin-bottom:6px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.acard .ameta{display:flex;gap:12px;font-size:11.5px;color:var(--muted);
+  flex-wrap:wrap;align-items:center;font-variant-numeric:tabular-nums}
+.acard .astate{font-size:10.5px;padding:1px 7px;border-radius:5px;border:1px solid var(--line)}
+.acard .astate.del{color:var(--del);border-color:#c9e0d2;background:#f4faf6}
+.acard .astate.hid{color:var(--muted);border-color:var(--line);background:#f5f5f3}
+.astatebar{display:flex;gap:8px;padding:12px 20px;border-bottom:1px solid var(--line);
+  background:#fcfcfb;flex-wrap:wrap;align-items:center}
+.stabtn{font-size:12px;padding:4px 11px;border-radius:7px;border:1px solid var(--line);
+  background:#fff;cursor:pointer;font-family:inherit;color:var(--text)}
+.stabtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+/* 详情：大图区 + 正文 + 评论 */
+.adetail{padding:18px 24px 40px}
+.adetail .ahead{display:flex;gap:12px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.adetail .atext{font-size:15px;line-height:1.75;white-space:pre-wrap;word-break:break-word;
+  margin-bottom:16px}
+/* 图片格子：格子高度完全由原图宽高比撑开，绝不裁切也绝不压扁。
+   早先用固定 height:190px + object-fit:cover，把 4284×5712 的竖图裁到只剩
+   中间 48% 高度，视觉上就是"碎成一条"。改为 aspect-ratio 跟随原图比例，
+   长图就长、宽图就短，整张画面永远完整。 */
+.adetail .agal{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+  gap:8px;margin-bottom:16px}
+.adetail .agal .agcell{position:relative;overflow:hidden;border-radius:8px;
+  border:1px solid var(--line);background:#f4f4f2;cursor:zoom-in}
+.adetail .agal img{display:block;width:100%;height:100%;object-fit:contain}
+.adetail .agal img.pending{opacity:.45}
+.adetail .agal .agbadge{position:absolute;right:6px;bottom:6px;font-size:10px;
+  padding:1px 6px;border-radius:4px;background:rgba(0,0,0,.55);color:#fff;
+  pointer-events:none;font-variant-numeric:tabular-nums}
+.adetail .agal .agcell.loading::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(100deg,#f4f4f2 30%,#ececea 50%,#f4f4f2 70%);
+  background-size:200% 100%;animation:agsh 1.1s infinite}
+@keyframes agsh{from{background-position:200% 0}to{background-position:-200% 0}}
+.adetail .astats{display:flex;gap:16px;font-size:12.5px;color:var(--muted);
+  padding:10px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  margin-bottom:16px;font-variant-numeric:tabular-nums;flex-wrap:wrap}
+.adetail .acms{display:flex;flex-direction:column;gap:10px}
+.acm{padding:10px 12px;background:#fafaf8;border-radius:8px;border:1px solid var(--line)}
+.acm .cby{font-size:12px;font-weight:500;margin-bottom:4px;display:flex;gap:8px;align-items:center}
+.acm .cby .badge{font-size:10px;padding:0 6px;border-radius:4px;
+  background:#eef4ff;color:#2c5aa0;border:1px solid #d6e3fb}
+.acm .ctx{font-size:13px;line-height:1.6;color:var(--text)}
+.acm .cmeta{font-size:11px;color:var(--muted);margin-top:5px}
+.anote{font-size:12px;padding:9px 12px;border-radius:8px;margin-bottom:14px}
+.anote.del{background:#f4faf6;color:#2e7d4f;border:1px solid #c9e0d2}
+.anote.hid{background:#f5f5f3;color:var(--muted);border:1px solid var(--line)}
+/* 图片全屏 */
+.imgmask{background:rgba(12,12,11,.94);padding:0;z-index:200;cursor:zoom-out}
+.imgstage{width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+  overflow:auto;padding:24px}
+.imgstage img{max-width:100%;max-height:100%;object-fit:contain;
+  box-shadow:0 8px 40px rgba(0,0,0,.5)}
+.imgstage img.actual{max-width:none;max-height:none;cursor:zoom-out}
+.imgclose{position:fixed;top:14px;right:18px;color:#fff;font-size:26px;z-index:201;
+  background:rgba(255,255,255,.12);border-radius:8px;width:38px;height:38px}
+.imgclose:hover{background:rgba(255,255,255,.24);color:#fff}
+/* 全屏大图两侧翻图按钮 */
+.imgnav{position:fixed;top:50%;transform:translateY(-50%);width:46px;height:82px;
+  border:0;border-radius:10px;background:rgba(255,255,255,.14);color:#fff;
+  font-size:26px;line-height:1;cursor:pointer;z-index:201;font-family:inherit}
+.imgnav:hover{background:rgba(255,255,255,.3)}
+.imgnav.prev{left:14px}
+.imgnav.next{right:14px}
+.imgnav[hidden]{display:none}
+.imgnum{position:fixed;top:16px;left:50%;transform:translateX(-50%);
+  color:#fff;font-size:12.5px;background:rgba(0,0,0,.4);padding:4px 12px;
+  border-radius:14px;z-index:201;font-variant-numeric:tabular-nums}
+
+/* 详情页上下条翻条控件：固定在底栏，键盘 ←→ 也能翻 */
+.anav{display:flex;align-items:center;gap:10px;justify-content:center;width:100%}
+.anav button{font-size:12px;padding:5px 14px;border-radius:7px;border:1px solid var(--line);
+  background:#fff;cursor:pointer;font-family:inherit;color:var(--text);
+  min-width:84px;text-align:center}
+.anav button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.anav button:disabled{opacity:.38;cursor:not-allowed}
+.anav .apos{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;
+  min-width:64px;text-align:center}
+
+/* 列表滚动定位按钮（长列表一键回顶 / 到底） */
+.archjump{position:sticky;bottom:12px;margin:0 auto;display:block;width:fit-content;
+  padding:5px 14px;border-radius:16px;border:1px solid var(--line);background:#fff;
+  color:var(--text);font-size:12px;cursor:pointer;font-family:inherit;
+  box-shadow:0 2px 10px rgba(0,0,0,.08);z-index:5}
+
+.platlist{padding:14px;border-right:1px solid var(--line);overflow-y:auto;background:#fcfcfb}.platbtn{display:block;width:100%;text-align:left;border:1px solid var(--line);background:#fff;
   border-radius:9px;padding:10px 12px;margin-bottom:8px;cursor:pointer;font-family:inherit;font-size:13px}
 .platbtn:hover{border-color:#c9c9c3}
 .platbtn.active{border-color:var(--accent);background:#f5f8ff}
@@ -272,8 +443,83 @@ input:focus,select:focus{border-color:var(--accent)}
     <div class="msg" id="msg"></div>
   </div>
 
-  <h3 class="sec" id="plSec" style="display:none">歌单变化</h3>
-  <div id="playlists"></div>
+  <!-- 旧版 Server酱/Bark 通知入口已隐藏，后续改用原生 App 通知 -->
+  <h3 class="sec" style="display:none">通知推送</h3>
+  <div class="panel" style="display:none">
+    <div class="nthead">
+      <label class="ntswitch">
+        <input type="checkbox" id="ntEnabled">
+        <span>启用推送</span>
+      </label>
+      <span class="nthint">每轮巡检把变更汇总成一条，无变更不发</span>
+    </div>
+
+    <div class="ntrow" data-ch="serverchan">
+      <div class="ntlbl">
+        <div class="ntname">Server酱 <span class="nthint">推送到微信</span></div>
+        <div class="ntst" id="ntStServerchan"></div>
+      </div>
+      <div class="ntctl">
+        <label class="ntswitch"><input type="checkbox" id="ntChServerchan"><span>启用</span></label>
+      </div>
+      <div class="ntfields">
+        <input id="ntKeyServerchan" placeholder="SCT 开头的 SendKey，留空表示不修改" autocomplete="off" spellcheck="false">
+        <button class="btn sm" data-nttest="serverchan">测试</button>
+      </div>
+    </div>
+
+    <div class="ntrow" data-ch="bark">
+      <div class="ntlbl">
+        <div class="ntname">Bark <span class="nthint">推送到 iPhone</span></div>
+        <div class="ntst" id="ntStBark"></div>
+      </div>
+      <div class="ntctl">
+        <label class="ntswitch"><input type="checkbox" id="ntChBark"><span>启用</span></label>
+      </div>
+      <div class="ntfields">
+        <input id="ntKeyBark" placeholder="Bark device key，留空表示不修改" autocomplete="off" spellcheck="false">
+        <button class="btn sm" data-nttest="bark">测试</button>
+      </div>
+      <div class="ntsub">
+        <input id="ntBarkServer" placeholder="Bark 服务地址，默认 https://api.day.app">
+      </div>
+      <label class="ntcheck">
+        <input type="checkbox" id="ntBarkViaSC">
+        <span>经 Server酱 中转（容器连不上 api.day.app 时勾选，需先在 Server酱 控制台绑定 Bark DeviceToken）</span>
+      </label>
+      <div class="ntwarn" id="ntBarkWarn" style="display:none"></div>
+    </div>
+
+    <div class="ntrow">
+      <div class="ntlbl">
+        <div class="ntname">网络代理 <span class="nthint">选填</span></div>
+        <div class="ntst nthint">容器直连推送服务失败时填，例如 http://host.docker.internal:7890</div>
+      </div>
+      <div class="ntfields">
+        <input id="ntProxy" placeholder="留空表示直连">
+      </div>
+    </div>
+
+    <div class="ntrow">
+      <div class="ntlbl">
+        <div class="ntname">消息内容</div>
+        <div class="ntst nthint">汇总消息里每类最多列多少个名字</div>
+      </div>
+      <div class="ntfields">
+        <input id="ntMaxNames" type="number" min="1" max="50" style="max-width:110px">
+        <input id="ntDashUrl" placeholder="看板公网地址（选填，附在消息末尾）">
+      </div>
+    </div>
+
+    <div class="ntactions">
+      <button class="btn primary" id="btnNotifySave">保存通知设置</button>
+      <button class="btn" id="btnNotifyAll">全部测试</button>
+      <span class="msg" id="ntMsg"></span>
+    </div>
+    <div class="nthint" style="margin-top:8px">
+      密钥保存在容器内 <code>data/notify.json</code>（不进 git）；若用环境变量配置，环境变量优先级更高。
+    </div>
+  </div>
 
   <div class="fold" id="runsFold">
     <span class="arrow">▶</span>
@@ -298,6 +544,58 @@ input:focus,select:focus{border-color:var(--accent)}
     </header>
     <div class="detailbody" id="detailBody"></div>
   </div>
+</div>
+
+<!-- 访问鉴权登录：只需填一次 Token。服务端用它可以换一枚 HttpOnly Cookie，
+     之后所有请求（包括图片）自动带凭证，页面代码无需改动。
+     注意 id 前缀用 auth*，不要叫 login*：下面「平台登录」（扫码登录微博/小红书）
+     已经占用了 loginMask / loginClose / loginHint，同名会让 getElementById
+     只命中第一个，导致两个弹窗互相打不开。 -->
+<div class="mask" id="authMask">
+  <div class="modal" style="width:min(440px,100%)">
+    <header>
+      <h3>需要登录</h3>
+    </header>
+    <div class="body" style="display:block;padding:20px 24px 24px">
+      <p class="lhint" style="margin:0 0 14px">
+        粘贴服务端签发的访问 Token。Token 只用于换取本机 Cookie，
+        不会保存在浏览器可读的地方。
+      </p>
+      <input id="authTok" type="password" autocomplete="off" spellcheck="false"
+        placeholder="sw_xxxxxxxxxxxxxxxx"
+        style="width:100%;box-sizing:border-box;padding:10px 12px;font-size:13.5px;
+               font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+               border:1px solid var(--line);border-radius:8px;outline:none">
+      <div class="lhint" id="authMsg" style="color:#a32d2d;min-height:18px;margin-top:8px"></div>
+      <div class="lactions" style="justify-content:flex-end">
+        <button class="stabtn" id="authGo">登录</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 内容库：全屏页面而非弹窗。原文一多，弹窗的 680px 单列滚动会彻底失控，
+     且原图 3000px 以上在弹窗里无法真正放大查看。 -->
+<div class="mask" id="archiveMask">
+  <div class="modal full" id="archiveModal">
+    <header>
+      <button class="xbtn" id="archBack" title="返回列表" style="display:none">‹</button>
+      <h3 id="archTitle">内容库</h3>
+      <span class="archcnt" id="archCount"></span>
+      <button class="xbtn" id="archClose" title="关闭">×</button>
+    </header>
+    <div class="archbody" id="archBody"></div>
+    <div class="archfoot" id="archFoot"></div>
+  </div>
+</div>
+
+<!-- 图片全屏查看：点原图后在此处铺满，可缩放，可左右翻图 -->
+<div class="mask imgmask" id="imgMask">
+  <button class="xbtn imgclose" id="imgClose" title="关闭">×</button>
+  <span class="imgnum" id="imgNum"></span>
+  <button class="imgnav prev" id="imgPrev" title="上一张" hidden>‹</button>
+  <button class="imgnav next" id="imgNext" title="下一张" hidden>›</button>
+  <div class="imgstage" id="imgStage"></div>
 </div>
 
 <div class="mask" id="editMask">
@@ -401,20 +699,78 @@ function imgFallback(img){
   ph.textContent=img.dataset.letter||"?";
   img.replaceWith(ph);
 }
-// 歌单封面 HTML：无地址或不加载则不占位，避免空框
+// 歌单封面 HTML：始终保留固定占位框，保证每行封面列宽一致、文字对齐
 function coverHTML(url){
-  if(!url) return "";
-  return `<img class="plcover" src="${esc(imgUrl(url))}" alt="" `+
-    `onerror="this.style.display='none'">`;
+  if(!url) return `<span class="plcover ph"></span>`;
+  return `<img class="plcover" src="${esc(imgUrl(url))}" alt="" onerror="coverFallback(this)">`;
+}
+function coverFallback(img){
+  const ph=document.createElement("span");
+  ph.className="plcover ph";
+  img.replaceWith(ph);
 }
 function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");
   setTimeout(()=>t.classList.remove("show"),2200)}
 function showMsg(text,ok){const m=document.getElementById("msg");m.textContent=text;
   m.className="msg show "+(ok?"ok":"err");setTimeout(()=>m.classList.remove("show"),4000)}
 
+// ---- 鉴权 ----
+// 网页端用 HttpOnly Cookie 而不是 Bearer：因为 <img src="/api/archive/media">
+// 和 <img src="/api/img"> 是浏览器原生加载，发不出自定义请求头。
+// 登录一次后 Cookie 自动随所有请求（含图片）发送，前端代码不用为图片做特殊处理。
+// token 本身永不落在 JS 能读到的地方（HttpOnly），XSS 也偷不走。
+let AUTH_STATE={enabled:false,authenticated:true};
+
 async function api(path,opts){
-  const r=await fetch(path,{headers:{"Content-Type":"application/json"},...opts});
+  const r=await fetch(path,{headers:{"Content-Type":"application/json"},
+    credentials:"same-origin",...opts});
+  if(r.status===401){
+    // 统一处理掉线：弹登录框，别让各调用点各自处理
+    AUTH_STATE.authenticated=false;
+    showLogin("登录已失效，请重新登录");
+    throw new Error("未授权");
+  }
   return r.json();
+}
+
+function showLogin(msg){
+  const m=document.getElementById("authMask");
+  document.getElementById("authMsg").textContent=msg||"";
+  m.classList.add("show");
+  setTimeout(()=>document.getElementById("authTok").focus(),80);
+}
+function hideLogin(){
+  document.getElementById("authMask").classList.remove("show");
+}
+
+async function doLogin(){
+  const tok=(document.getElementById("authTok").value||"").trim();
+  if(!tok){ document.getElementById("authMsg").textContent="请填 Token"; return; }
+  try{
+    const r=await fetch("/api/auth/login",{
+      method:"POST", credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({token:tok}),
+    }).then(x=>x.json());
+    if(!r.ok){ document.getElementById("authMsg").textContent=r.message||"登录失败"; return; }
+  }catch(e){
+    document.getElementById("authMsg").textContent="网络错误";
+    return;
+  }
+  AUTH_STATE.authenticated=true;
+  hideLogin();
+  document.getElementById("authTok").value="";
+  // 登录成功后整页数据重来一遍，最省事也最不容易漏
+  location.reload();
+}
+
+async function bootAuth(){
+  try{
+    const s=await fetch("/api/auth/status",{credentials:"same-origin"}).then(x=>x.json());
+    AUTH_STATE.enabled=!!s.auth_enabled;
+    AUTH_STATE.authenticated=!!s.authenticated;
+    if(AUTH_STATE.enabled && !AUTH_STATE.authenticated){ showLogin(""); }
+  }catch(e){ /* 接口异常时不阻塞页面，后续请求会各自报错 */ }
 }
 
 function fmtTime(ts){const d=new Date(ts*1000);
@@ -484,16 +840,60 @@ function eventsHTML(c){
     :`<div class="empty">暂无变更记录（首次采集只建立基线）。</div>`;
 }
 
+// 最近发布内容 HTML，供详情弹窗复用
+// 每条支持：正文 / 配图（走代理+缓存）/ 互动数 / 热门评论 / 跳转原文
+function postsHTML(c){
+  const posts=c.recent_posts||[];
+  if(!posts.length) return "";
+  const rows=posts.map((p,i)=>{
+    const text=typeof p==="string"?p:(p.text||"");
+    const imgs=(p.images||[]).map(u=>
+      `<img class="pimg" src="${esc(imgUrl(u))}" alt="" loading="lazy"
+        referrerpolicy="no-referrer" onerror="this.style.display='none'">`).join("");
+    const totalImgs=(p.images_total||0)-(p.images||[]).length;
+    const moreImg=totalImgs>0&&(p.images||[]).length?`<span class="pmore">+${totalImgs}</span>`:"";
+    // 互动：赞 / 评论 / 转发（有才显示）
+    const stats=[];
+    if(p.likes) stats.push(`<span>赞 ${Number(p.likes).toLocaleString()}</span>`);
+    if(p.comments_count) stats.push(`<span>评论 ${Number(p.comments_count).toLocaleString()}</span>`);
+    if(p.reposts) stats.push(`<span>转发 ${Number(p.reposts).toLocaleString()}</span>`);
+    const statLine=stats.length?`<div class="pstat">${stats.join("")}</div>`:"";
+    const rt=p.retweet?`<div class="prt">转发：${esc(p.retweet)}</div>`:"";
+    // 评论：最多 3 条
+    const cms=(p.comments||[]).slice(0,3).map(cm=>
+      `<div class="pcm"><span class="pby">${esc(cm.by||"")}</span>
+        <span class="ptx">${esc(cm.text||"")}</span>
+        ${cm.likes?`<span class="plk">赞${cm.likes}</span>`:""}</div>`).join("");
+    const cmBox=cms?`<div class="pcms">${cms}</div>`:"";
+    const link=p.url?`<a class="plink" href="${esc(p.url)}" target="_blank" rel="noopener">查看原文</a>`:"";
+    const head=link||p.video?`<div class="pfoot">${p.video?'<span class="pvtag">视频</span>':""}${link}</div>`:"";
+    return `<div class="post"><span class="idx">${i+1}</span>
+      <div class="pbody">
+        <div class="tx">${esc(text)}${p.video?' <span class="pvtag">视频</span>':""}</div>
+        ${rt}
+        ${imgs?`<div class="pimgs">${imgs}${moreImg}</div>`:""}
+        ${statLine}${cmBox}${head}
+      </div></div>`;
+  }).join("");
+  const more=posts.length>=8?`<div class="more">仅显示最近 ${posts.length} 条</div>`:"";
+  return `<h3 class="sec">最近发布内容</h3><div class="posts">${rows}${more}</div>`;
+}
+
 // 歌单变更明细 HTML，供详情弹窗复用
+// 布局：首行固定是「封面 + 歌单名 + 曲目数」，变更记录缩进到下方独立块。
+// 变更多于 FOLD_AT 条时默认折叠，点「展开全部」再显示，避免单个歌单把弹窗撑爆。
+const PL_FOLD_AT = 5;
+
 function playlistDetailHTML(c){
   const pls=c.playlists||[];
   if(!pls.length) return "";
-  return `<div class="plist">${pls.map(pl=>{
+  return `<div class="plist">${pls.map((pl,pi)=>{
     const addRows=(pl.added||[]).map(n=>`<div class="line2"><span class="ar add">新增</span>
-      <span class="sng">${esc(n)}</span></div>`).join("");
+      <span class="sng">${esc(n)}</span></div>`);
     const remRows=(pl.removed||[]).map(n=>`<div class="line2"><span class="ar del">移除</span>
-      <span class="sng">${esc(n)}</span></div>`).join("");
-    const evRows=(pl.events||[]).slice(0,20).map(e=>{
+      <span class="sng">${esc(n)}</span></div>`);
+    // 有 events（带时间与艺人）时优先用它们，信息更全
+    let rows=(pl.events||[]).length ? (pl.events||[]).map(e=>{
       const x=e.item_extra||{};
       const ar=e.event_type==="track_added"?"add":"del";
       const tag=e.event_type==="track_added"?"新增":"移除";
@@ -504,14 +904,26 @@ function playlistDetailHTML(c){
       return `<div class="line2"><span class="ar ${ar}">${tag}</span>
         <span class="sng">${esc(e.item_name||e.item_id)}</span>${who}
         <span class="who">${when}</span></div>`;
-    }).join("");
-    const body = evRows || (addRows||remRows
-      ? addRows+remRows
-      : `<div class="empty" style="font-size:12px">暂无增删记录</div>`);
+    }) : addRows.concat(remRows);
+
+    let body;
+    let tail="";
+    if(!rows.length){
+      // 无变更：提示直接放在首行右侧，不额外占一行，避免白撑高
+      tail=`<span class="none">暂无增删</span>`;
+      body="";
+    }else{
+      const folded=rows.length>PL_FOLD_AT;
+      // 超出部分打上 extra 标记，默认隐藏
+      const html=rows.map((r,i)=>folded&&i>=PL_FOLD_AT?r.replace('class="line2"','class="line2 extra"'):r).join("");
+      const more=folded?`<span class="more" data-fold="pl${pi}">展开全部 ${rows.length} 条 ▾</span>`:"";
+      body=`<div class="chg${folded?" folded":""}" data-pl="${pi}">${html}${more}</div>`;
+    }
     return `<div class="plrow2">
-      ${coverHTML(pl.cover)}<span class="nm">${esc(pl.name)}</span>
-      <span class="cnt">${pl.track_count} 首</span>
-      <div class="chg">${body}</div>
+      <div class="pltop">
+        ${coverHTML(pl.cover)}<span class="nm">${esc(pl.name)}</span>
+        ${tail}<span class="cnt">${Number(pl.track_count).toLocaleString()} 首</span>
+      </div>${body}
     </div>`;
   }).join("")}</div>`;
 }
@@ -528,13 +940,247 @@ function renderCards(s){
       `<div class="hl"><div class="n">${Number(v).toLocaleString()}</div><div class="l">当前${esc(k)}</div></div>`).join("")}</div>`:"";
     const stats=c.stats.map(x=>`<div class="stat"><div class="n ${x[2]}">${esc(x[1])}</div>
       <div class="l">${esc(x[0])} · 近7天</div></div>`).join("");
+    // 归档入口：只有真的存了内容才显示，避免空目标上出现一个点不动的按钮
+    const a=c.archive||{};
+    const arcBtn=(a.total>0)?`<button class="arcbtn" data-archive="${esc(c.key)}">
+        内容库 ${Number(a.total).toLocaleString()} 条${a.deleted?` · 已删 ${a.deleted}`:""} ›</button>`:"";
     return `<div class="card clickable" data-card="${esc(c.key)}" title="点击查看变更记录">
       <h2>${avatarHTML(c.avatar,c.name)}<span class="cname">${esc(c.name)}</span><span class="tag">${esc(c.platform)}</span>${off}
         <span class="exp">▶</span></h2>
       ${head}
       <div class="stats">${stats}</div>
+      ${arcBtn}
     </div>`;
   }).join("");
+}
+
+// ============ 内容库 ============
+// 独立全屏页，按游标分页加载，绝不一次性把归档全量塞进内存。
+const ARCH = {key:null, name:"", items:[], cursor:null, hasMore:false, filter:"all", openId:null};
+
+function fmtTime(ts){
+  if(!ts) return "";
+  const d=new Date(ts*1000), p2=n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
+function stateTag(s){
+  if(s==="deleted") return `<span class="astate del">已删除</span>`;
+  if(s==="hidden")  return `<span class="astate hid">超出抓取范围</span>`;
+  return "";
+}
+
+function openArchive(key){
+  const c=(STATE&&STATE.cards||[]).find(x=>x.key===key);
+  ARCH.key=key; ARCH.name=c?c.name:key;
+  ARCH.items=[]; ARCH.cursor=null; ARCH.hasMore=false; ARCH.openId=null; ARCH.filter="all";
+  document.getElementById("archTitle").textContent=`内容库 · ${ARCH.name}`;
+  document.getElementById("archBack").style.display="none";
+  document.getElementById("archiveMask").classList.add("show");
+  document.getElementById("archBody").scrollTop=0;
+  loadArchive(true);
+}
+
+async function loadArchive(reset){
+  const body=document.getElementById("archBody");
+  if(reset){ ARCH.items=[]; ARCH.cursor=null; body.innerHTML=`<div class="empty" style="padding:24px">加载中…</div>`; }
+  const qs=new URLSearchParams({target:ARCH.key, limit:"30"});
+  if(ARCH.filter!=="all") qs.set("state",ARCH.filter);
+  if(!reset && ARCH.cursor) qs.set("cursor",ARCH.cursor);
+  try{
+    const r=await api(`/api/archive/list?${qs}`);
+    if(!r.ok) throw new Error(r.message||"加载失败");
+    ARCH.items = reset ? r.items : ARCH.items.concat(r.items);
+    ARCH.cursor=r.next_cursor; ARCH.hasMore=r.has_more;
+    renderArchive();
+  }catch(e){
+    body.innerHTML=`<div class="empty" style="padding:24px">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+function renderArchive(){
+  const body=document.getElementById("archBody");
+  const cnt=document.getElementById("archCount");
+  // 顶部只显示筛选态与量级；具体"已加载 N 条"在底栏，避免同一句话出现两次
+  cnt.textContent = ARCH.items.length ? `共 ${ARCH.items.length} 条${
+    ARCH.hasMore?"+":""}` : "";
+
+  const bar=`<div class="astatebar">
+    ${[["all","全部"],["alive","仅存活"],["deleted","已删除"],["hidden","超范围"]].map(([k,l])=>
+      `<button class="stabtn${ARCH.filter===k?" on":""}" data-flt="${k}">${l}</button>`).join("")}
+  </div>`;
+
+  if(ARCH.openId) return;  // 详情视图自带返回
+
+  if(!ARCH.items.length){
+    body.innerHTML=bar+`<div class="empty" style="padding:24px">还没有归档内容。下一轮巡检会自动抓取。</div>`;
+    renderArchFoot();
+    return;
+  }
+  body.innerHTML=bar+ARCH.items.map(it=>{
+    // 列表缩略图用 thumb=2（200px / ~10KB）：格子只有 56px，用 900px 版
+    // 等于 30 条×3 张白拉 9.4MB
+    const thumbs=(it.media_count>0)
+      ? `<div class="athumbs">`+
+        [1,2,3].slice(0,Math.min(3,it.media_count)).map(seq=>
+          `<img src="/api/archive/media?id=${it.id}&seq=${seq}&thumb=2" alt=""
+            loading="lazy" onerror="this.style.visibility='hidden'">`).join("")+
+        (it.media_count>3?`<span class="more">+${it.media_count-3}</span>`:"")+
+        `</div>`
+      : "";
+    return `<div class="acard ${it.state}" data-open="${it.id}">
+      ${thumbs}
+      <div class="amain">
+        <div class="atx">${esc(it.text||"(无正文)")}</div>
+        <div class="ameta">
+          ${stateTag(it.state)}
+          <span>${esc(fmtTime(it.posted_at))}</span>
+          ${it.likes?`<span>赞 ${Number(it.likes).toLocaleString()}</span>`:""}
+          ${it.comments_count?`<span>评 ${Number(it.comments_count).toLocaleString()}</span>`:""}
+          ${it.saved_comment_count?`<span style="color:#2c5aa0">存档评论 ${it.saved_comment_count}</span>`:""}
+          ${it.media_count?`<span>图 ${it.media_count}</span>`:""}
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+  renderArchFoot();
+}
+
+function renderArchFoot(){
+  const f=document.getElementById("archFoot");
+  if(ARCH.openId){ f.innerHTML=""; return; }
+  // 列表底栏：已加载数 + 加载更多
+  const info=`<span class="archcnt" style="margin-right:auto">已加载 ${ARCH.items.length} 条${
+    ARCH.hasMore?"（还有更多）":""}</span>`;
+  const more=ARCH.hasMore
+    ? `<button class="stabtn" id="archMore">加载更多</button>`
+    : `<span class="empty" style="font-size:12.5px">${ARCH.items.length?"已到底部":"暂无内容"}</span>`;
+  f.innerHTML=info+more;
+}
+
+async function openArchiveItem(id){
+  ARCH.openId=id;
+  document.getElementById("archBack").style.display="";
+  document.getElementById("archTitle").textContent=`原文 · ${ARCH.name}`;
+  const body=document.getElementById("archBody");
+  body.innerHTML=`<div class="empty" style="padding:24px">加载中…</div>`;
+  try{
+    const r=await api(`/api/archive/item?id=${id}`);
+    if(!r.ok) throw new Error(r.message||"加载失败");
+    renderArchiveItem(r.item);
+  }catch(e){
+    body.innerHTML=`<div class="empty" style="padding:24px">加载失败：${esc(e.message)}</div>`;
+  }
+}
+
+// 详情页上下条：在已加载的 ARCH.items 里找位置，不额外请求列表
+function archStep(delta){
+  if(!ARCH.openId) return;
+  const i=ARCH.items.findIndex(x=>x.id===ARCH.openId);
+  const j=i+delta;
+  if(i<0||j<0||j>=ARCH.items.length){
+    // 到底了：还有下一页就先拉一批再跳
+    if(delta>0&&ARCH.hasMore){ loadArchive(false).then(()=>{
+        const k=ARCH.items.findIndex(x=>x.id===ARCH.openId);
+        if(k>=0&&ARCH.items[k+1]) openArchiveItem(ARCH.items[k+1].id);
+      }); }
+    return;
+  }
+  openArchiveItem(ARCH.items[j].id);
+}
+
+function renderArchiveItem(it){
+  const body=document.getElementById("archBody");
+  document.getElementById("archCount").textContent="";
+  const note = it.state==="deleted"
+    ? `<div class="anote del">这条内容已在平台删除。存档（正文、图片、评论）完整保留，仅作标记。</div>`
+    : it.state==="hidden"
+    ? `<div class="anote hid">这条内容已滑出平台的可抓取范围，无法确认是否仍存在。存档保留，未标记为删除。</div>`
+    : "";
+
+  // 图片格子：先用 900px 预览图填满，几乎瞬间可见；用户点开才拉 3–7MB 原图。
+  // 格子高度按原图宽高比撑开，不再用固定 190px + cover 裁成一条。
+  const gal = (it.media||[]).map(m=>{
+    const thumb = m.cached ? `/api/archive/media?id=${it.id}&seq=${m.seq}&thumb=1` : null;
+    const full  = m.cached ? `/api/archive/media?id=${it.id}&seq=${m.seq}`
+                           : (m.remote_url?imgUrl(m.remote_url):"");
+    if(!full) return "";
+    const w=m.width||0, h=m.height||0;
+    // 格子高度 = 宽度 × 原图高宽比，整张画面完整呈现，不裁不压
+    const ar = (w&&h) ? `aspect-ratio:${w}/${h}` : "aspect-ratio:3/4";
+    const pend = m.cached ? "" : " pending";
+    const tip = m.cached
+      ? `${w||"?"}×${h||"?"} · 原图 ${((m.bytes||0)/1024/1024).toFixed(1)}MB（点击查看原图）`
+      : "原图待下载（下轮补齐）";
+    const badge = (w&&h) ? `<span class="agbadge">${w}×${h}</span>` : "";
+    const start = thumb || full;
+    return `<div class="agcell loading" style="${ar}" title="${esc(tip)}">
+      <img class="gimg${pend}" src="${esc(start)}" alt="" loading="lazy"
+        data-full="${esc(full)}" data-thumb="${esc(thumb||"")}"
+        data-w="${w}" data-h="${h}"
+        onload="this.parentNode.classList.remove('loading')"
+        onerror="this.classList.add('pending');this.parentNode.classList.remove('loading');this.title='图片加载失败'">
+      ${badge}</div>`;
+  }).join("");
+
+  const cms = (it.comments||[]).map(c=>{
+    const badges=[];
+    if(c.by_author) badges.push(`<span class="badge">作者回复</span>`);
+    if(c.liked_by_author) badges.push(`<span class="badge">作者赞过</span>`);
+    return `<div class="acm">
+      <div class="cby">${esc(c.author_name||"")}${badges.join("")}</div>
+      <div class="ctx">${esc(c.text||"")}</div>
+      <div class="cmeta">${esc(fmtTime(c.posted_at))}${c.likes?` · 赞 ${c.likes}`:""}</div>
+    </div>`;
+  }).join("");
+
+  // 上下条导航：手机上底栏固定，桌面可用 ←/→
+  const idx=ARCH.items.findIndex(x=>x.id===it.id);
+  const navHtml = idx>=0 ? `<div class="anav">
+      <button id="archPrev" ${idx<=0?"disabled":""}>‹ 上一条</button>
+      <span class="apos">${idx+1} / ${ARCH.items.length}${ARCH.hasMore?"+":""}</span>
+      <button id="archNext" ${idx>=ARCH.items.length-1&&!ARCH.hasMore?"disabled":""}>下一条 ›</button>
+    </div>` : "";
+
+  body.innerHTML=`<div class="adetail">
+    ${note}
+    <div class="ahead">
+      ${stateTag(it.state)}
+      <span style="font-size:12.5px;color:var(--muted)">${esc(fmtTime(it.posted_at))}</span>
+      ${it.url?`<a href="${esc(it.url)}" target="_blank" rel="noopener"
+        style="font-size:12px;color:var(--accent)">平台原址 ↗</a>`:""}
+    </div>
+    <div class="atext">${esc(it.text||"(无正文)")}</div>
+    ${it.retweet?`<div class="acm" style="margin-bottom:14px">
+      <div class="cby">转发内容</div><div class="ctx">${esc(it.retweet)}</div></div>`:""}
+    ${gal?`<div class="agal">${gal}</div>`:""}
+    <div class="astats">
+      ${it.likes?`<span>赞 ${Number(it.likes).toLocaleString()}</span>`:""}
+      ${it.comments_count?`<span>平台评论 ${Number(it.comments_count).toLocaleString()}</span>`:""}
+      ${it.reposts?`<span>转发 ${Number(it.reposts).toLocaleString()}</span>`:""}
+      <span>存档图片 ${(it.media||[]).length} 张</span>
+      <span>存档评论 ${(it.comments||[]).length} 条（仅作者互动）</span>
+    </div>
+    ${cms?`<div class="acms">${cms}</div>`
+        :`<div class="empty" style="font-size:12.5px">这条内容没有作者互动过的评论。</div>`}
+  </div>`;
+  body.scrollTop=0;
+  // 底栏放上下条导航（详情视图专用，返回列表时 renderArchFoot 会清掉）
+  document.getElementById("archFoot").innerHTML=navHtml;
+  const pv=document.getElementById("archPrev"), nx=document.getElementById("archNext");
+  if(pv) pv.onclick=()=>archStep(-1);
+  if(nx) nx.onclick=()=>archStep(1);
+}
+
+function closeArchive(){
+  document.getElementById("archiveMask").classList.remove("show");
+  ARCH.openId=null;
+}
+function backArchive(){
+  ARCH.openId=null;
+  document.getElementById("archBack").style.display="none";
+  document.getElementById("archTitle").textContent=`内容库 · ${ARCH.name}`;
+  // 回到列表：已加载的数据在内存里，直接重渲染，不再请求
+  renderArchive();
 }
 
 // 打开变更记录弹窗
@@ -543,6 +1189,7 @@ function openDetail(key){
   if(!c){toast("数据不存在");return;}
   document.getElementById("detailTitle").textContent=`变更记录 · ${c.name}`;
   const plDetail=playlistDetailHTML(c);
+  const postDetail=postsHTML(c);
   const profile=`<div class="row" style="gap:12px;padding:4px 0 2px">
     ${avatarHTML(c.avatar,c.name,"detail-avatar")}
     <div><div style="font-weight:600;font-size:15px">${esc(c.name)}</div>
@@ -551,6 +1198,7 @@ function openDetail(key){
     profile+
     `<h3 class="sec" style="margin-top:0">变更记录</h3>
      <div class="events" style="max-height:none">${eventsHTML(c)}</div>`+
+    postDetail+
     (plDetail?`<h3 class="sec">歌单变更记录</h3>${plDetail}`:"");
   document.getElementById("detailMask").classList.add("show");
 }
@@ -566,47 +1214,6 @@ function renderRuns(s){
   const cnt=document.getElementById("runsCnt");
   if(cnt) cnt.textContent = rows.length ? `${rows.length} 条` : "";
 }
-
-function renderPlaylists(s){
-  const box=document.getElementById("playlists");
-  const sec=document.getElementById("plSec");
-  const gs=s.playlists||[];
-  if(!gs.length){
-    box.innerHTML="";
-    sec.style.display="none";
-    return;
-  }
-  sec.style.display="";
-  sec.textContent=`歌单变化（近30天，${gs.length} 个歌单）`;
-  box.innerHTML = gs.map((g,idx)=>{
-    const tot=g.added.length+g.removed.length;
-    const tags=[];
-    if(g.added.length) tags.push(`<span class="tg add">+${g.added.length}</span>`);
-    if(g.removed.length) tags.push(`<span class="tg del">-${g.removed.length}</span>`);
-    if(g.playlist_added) tags.push(`<span class="tg add">新歌单</span>`);
-    if(g.playlist_removed) tags.push(`<span class="tg del">歌单移除</span>`);
-    const added=g.added.length?`<div class="plrow"><span class="ar add">新增</span>
-      <div class="songs">${g.added.map(n=>`<span class="song add">${esc(n)}</span>`).join("")}</div></div>`:"";
-    const removed=g.removed.length?`<div class="plrow"><span class="ar del">移除</span>
-      <div class="songs">${g.removed.map(n=>`<span class="song del">${esc(n)}</span>`).join("")}</div></div>`:"";
-    const when=g.last_at?new Date(g.last_at*1000).toLocaleString("zh-CN",{hour12:false}):"";
-    return `<div class="plgroup open" data-pl="${idx}">
-      <div class="plhead">
-        <span class="nm">${esc(g.name)}</span>
-        ${tags.join("")}
-        <span class="when">${esc(g.target)} · ${esc(when)}</span>
-      </div>
-      <div class="plbody">${added}${removed || (tot===0?'<div class="empty">本周期无歌曲增删</div>':'')}</div>
-    </div>`;
-  }).join("");
-}
-
-// 点击歌单卡片展开/收起
-document.getElementById("playlists").addEventListener("click", e=>{
-  const h=e.target.closest(".plhead");
-  if(!h) return;
-  h.parentElement.classList.toggle("open");
-});
 
 // 巡检记录折叠（默认收起）
 document.getElementById("runsFold").addEventListener("click", ()=>{
@@ -644,8 +1251,136 @@ function render(s){
   document.getElementById("meta").innerHTML=
     `<span>数据更新于 ${p(st.getHours())}:${p(st.getMinutes())}:${p(st.getSeconds())}</span>`+
     `<span>报表生成 ${esc(s.generated_at)}</span>`;
-  renderPills(s);renderCards(s);renderRuns(s);renderMgr(s);renderPlaylists(s);
+  renderPills(s);renderCards(s);renderRuns(s);renderMgr(s);
+  renderNotify(s.notify);
 }
+
+/* ============ 通知推送设置 ============ */
+// 只回填状态，不回填密钥明文（后端只给脱敏串）
+let NT_STATE = null;
+function renderNotify(nt){
+  if(!nt) return;
+  NT_STATE = nt;
+  document.getElementById("ntEnabled").checked = !!nt.enabled;
+  document.getElementById("ntChServerchan").checked = !!(nt.channels||{}).serverchan;
+  document.getElementById("ntChBark").checked = !!(nt.channels||{}).bark;
+
+  const sc = nt.serverchan || {};
+  const bk = nt.bark || {};
+  const scEl = document.getElementById("ntStServerchan");
+  if(sc.key_set){
+    scEl.className = "ntst ok";
+    scEl.textContent = `已配置 ${sc.key_mask||""}` + (sc.from_env ? " · 来自环境变量" : "");
+  } else {
+    scEl.className = "ntst warn";
+    scEl.textContent = "未配置 SendKey";
+  }
+  const bkEl = document.getElementById("ntStBark");
+  const bkDone = bk.key_set && bk.ready !== false;
+  if(bkDone){
+    bkEl.className = "ntst ok";
+    const via = bk.via_serverchan ? " · 经 Server酱 中转" : "";
+    bkEl.textContent = `${bk.key_mask||""}${via}` + (bk.from_env ? " · 来自环境变量" : "");
+  } else if(bk.key_set){
+    bkEl.className = "ntst warn";
+    bkEl.textContent = "已填 device key，但中转缺少 SendKey";
+  } else {
+    bkEl.className = "ntst warn";
+    bkEl.textContent = "未配置 device key";
+  }
+  document.getElementById("ntBarkViaSC").checked = !!bk.via_serverchan;
+  const warnEl = document.getElementById("ntBarkWarn");
+  if(bk.key_set && !bk.via_serverchan){
+    warnEl.style.display = "block";
+    warnEl.textContent = "直连模式要求容器能访问 Bark 服务；若测试报 TLS 握手被断开，请勾选上面的中转。";
+  } else {
+    warnEl.style.display = "none";
+  }
+  // 这些是纯展示值，每次渲染都回填（用户已改过的不覆盖）
+  const sv = (id,val)=>{const el=document.getElementById(id); if(!el.dataset.touched && el.value==="") el.value=val||"";};
+  sv("ntBarkServer", bk.via_serverchan ? "" : (bk.server||""));
+  sv("ntProxy", nt.proxy||"");
+  sv("ntMaxNames", nt.max_names_per_group||10);
+  sv("ntDashUrl", nt.dashboard_url||"");
+}
+// 记住用户改过的输入框，避免下次轮询把输入覆盖掉
+["ntKeyServerchan","ntKeyBark","ntBarkServer","ntProxy","ntMaxNames","ntDashUrl"].forEach(id=>{
+  const el=document.getElementById(id);
+  if(el) el.addEventListener("input", ()=>{ el.dataset.touched="1"; });
+});
+
+function ntMsg(text, ok){
+  const m=document.getElementById("ntMsg");
+  m.textContent=text;
+  m.className="msg show "+(ok?"ok":"err");
+}
+
+async function saveNotify(){
+  const viaSC = document.getElementById("ntBarkViaSC").checked;
+  const body={
+    enabled: document.getElementById("ntEnabled").checked,
+    channels: {
+      serverchan: document.getElementById("ntChServerchan").checked,
+      bark: document.getElementById("ntChBark").checked,
+    },
+    max_names_per_group: Number(document.getElementById("ntMaxNames").value||10),
+    dashboard_url: document.getElementById("ntDashUrl").value.trim(),
+    bark_via_serverchan: viaSC,
+    bark_server: viaSC ? "" : document.getElementById("ntBarkServer").value.trim(),
+    proxy: document.getElementById("ntProxy").value.trim(),
+  };
+  // 密钥留空 = 不修改；填了才提交，保存后清空输入框避免明文停在页面上
+  const scKey=document.getElementById("ntKeyServerchan").value.trim();
+  const bkKey=document.getElementById("ntKeyBark").value.trim();
+  if(scKey) body.serverchan_key=scKey;
+  if(bkKey) body.bark_key=bkKey;
+
+  const b=document.getElementById("btnNotifySave");
+  b.disabled=true;b.textContent="保存中…";
+  try{
+    const r=await api("/api/notify/save",{method:"POST",body:JSON.stringify(body)});
+    ntMsg(r.message||(r.ok?"已保存":"保存失败"), r.ok);
+    if(r.ok){
+      // 清空密钥输入并取消 touched，让状态刷新回填
+      [["ntKeyServerchan"],["ntKeyBark"]].forEach(([id])=>{
+        const el=document.getElementById(id);
+        el.value=""; delete el.dataset.touched;
+      });
+      renderNotify(r);
+      // 后端已失效 state 缓存，延迟刷新拿到新数据（避免和刚渲染的结果打架）
+      setTimeout(load, 300);
+    }
+  }catch(e){ ntMsg("保存失败："+e.message,false); }
+  finally{ b.disabled=false;b.textContent="保存通知设置"; }
+}
+
+async function testNotify(channel){
+  const label={serverchan:"Server酱",bark:"Bark"}[channel]||"全部";
+  ntMsg(`正在发送 ${label} 测试消息…`, true);
+  try{
+    const r=await api("/api/notify/test",{method:"POST",body:JSON.stringify({channel:channel||""})});
+    ntMsg(r.message||"未发送", r.ok);
+    // 测试失败时顺手做一次连通性探测，把「为什么失败」直接说清楚
+    if(!r.ok){
+      try{
+        const p = await api("/api/notify/probe",{method:"POST",body:"{}"});
+        const hints=[];
+        if(p.bark && !p.bark.ok && !p.bark.via_serverchan){
+          hints.push(`容器到 ${p.bark.host} 不可达 → 勾选「经 Server酱 中转」`);
+        }
+        if(p.proxy) hints.push(`当前代理：${p.proxy}`);
+        if(hints.length) ntMsg((r.message||"")+" ｜ "+hints.join("；"), false);
+      }catch(e){}
+    }
+  }catch(e){ ntMsg("测试失败："+e.message,false); }
+}
+
+document.getElementById("btnNotifySave").onclick=saveNotify;
+document.getElementById("btnNotifyAll").onclick=()=>testNotify(null);
+document.getElementById("ntMsg").addEventListener("click", ()=>{});
+document.querySelectorAll("[data-nttest]").forEach(btn=>{
+  btn.addEventListener("click", ()=>testNotify(btn.dataset.nttest));
+});
 
 async function load(){
   try{
@@ -746,13 +1481,25 @@ document.addEventListener("click",async e=>{
     }
     return;
   }
+  // 点「内容库」按钮：进全屏归档页（必须在卡片判断之前，否则会被卡片抢走）
+  const ab=e.target.closest("[data-archive]");
+  if(ab){
+    e.stopPropagation();
+    openArchive(ab.dataset.archive);
+    return;
+  }
   // 点卡片本体：在弹窗中查看变更记录
   const card=e.target.closest(".card.clickable");
   if(card){ openDetail(card.dataset.card); }
 });
 
-load();
-setInterval(load,30000);
+// 先问一次鉴权状态，再开主循环：没登录就直接弹框，别让下面一串请求
+// 全部撞 401 再逐个弹提示。
+bootAuth().then(()=>{
+  if(AUTH_STATE.enabled && !AUTH_STATE.authenticated) return;  // 等用户登录
+  load();
+  setInterval(load,30000);
+});
 
 /* ============================ 登录面板 ============================ */
 const LOGIN_PLATS = [
@@ -962,6 +1709,141 @@ document.getElementById("detailClose").onclick = closeDetail;
 document.getElementById("detailMask").addEventListener("click", e=>{
   if(e.target.id==="detailMask") closeDetail();
 });
+// 歌单变更折叠：点「展开全部」后显示全部条目
+document.getElementById("detailBody").addEventListener("click", e=>{
+  const more=e.target.closest(".more");
+  if(!more) return;
+  const box=more.closest(".chg");
+  if(!box) return;
+  box.classList.remove("folded");
+  more.remove();
+});
+
+/* ============================ 内容库 ============================ */
+document.getElementById("archClose").onclick = closeArchive;
+document.getElementById("archBack").onclick = backArchive;
+document.getElementById("archiveMask").addEventListener("click", e=>{
+  if(e.target.id==="archiveMask") closeArchive();
+});
+// 注意：监听绑在 #archiveModal 而不是 #archBody ——「加载更多」按钮在
+// 底部的 #archFoot 里，与 #archBody 是兄弟节点，绑在 body 上收不到事件。
+document.getElementById("archiveModal").addEventListener("click", e=>{
+  const more=e.target.closest("#archMore");
+  if(more){ loadArchive(false); return; }
+  const flt=e.target.closest("[data-flt]");
+  if(flt){
+    ARCH.filter=flt.dataset.flt;
+    ARCH.openId=null;
+    document.getElementById("archBack").style.display="none";
+    document.getElementById("archTitle").textContent=`内容库 · ${ARCH.name}`;
+    loadArchive(true);
+    return;
+  }
+  // 详情里的大图：点击进入全屏
+  const img=e.target.closest(".agal .gimg, .agal img");
+  if(img){ e.stopPropagation(); showFullImage(img.dataset.full||img.src, img); return; }
+  const row=e.target.closest("[data-open]");
+  if(row){ openArchiveItem(Number(row.dataset.open)); }
+});
+
+/* 原图全屏：先铺缩略图秒开，再静默换原图；点击切 1:1 实际像素，可左右翻图。
+   为什么不一上来就拉原图：一张 4MB 走本地 HTTP 也要 0.3–1 秒，全屏黑屏等待
+   体验很差。缩略图 120KB 几乎瞬到，用户先看清构图，原图在后台补上。 */
+let IMG_ACTUAL=false;
+let IMG_LIST=[];      // 当前条目所有图片的 {full, thumb, w, h}
+let IMG_IDX=0;
+
+function collectGallery(){
+  IMG_LIST=[...document.querySelectorAll(".adetail .agal .gimg")].map(el=>({
+    full: el.dataset.full||el.src, thumb: el.dataset.thumb||"", 
+    w: Number(el.dataset.w)||0, h: Number(el.dataset.h)||0,
+  }));
+}
+
+function showFullImage(src, imgEl){
+  collectGallery();
+  IMG_IDX=Math.max(0, IMG_LIST.findIndex(x=>x.full===src));
+  if(!IMG_LIST.length) IMG_LIST=[{full:src,thumb:"",w:0,h:0}];
+  renderFullImage();
+  document.getElementById("imgMask").classList.add("show");
+}
+
+function renderFullImage(){
+  const stage=document.getElementById("imgStage");
+  const item=IMG_LIST[IMG_IDX];
+  if(!item) return;
+  IMG_ACTUAL=false;
+  stage.scrollTop=0; stage.scrollLeft=0;
+  const el=document.createElement("img");
+  // 先挂缩略图（已缓存，瞬开），再异步换原图
+  if(item.thumb) el.src=item.thumb;
+  el.onerror=()=>{ if(el.src!==item.full){ el.src=item.full; } else { toast("图片加载失败"); } };
+  stage.innerHTML=""; stage.appendChild(el);
+
+  if(item.full && item.full!==item.thumb){
+    const hi=new Image();
+    hi.onload=()=>{
+      // 只在用户还没切到 1:1 时才替换，避免打乱已放大的视图
+      if(stage.firstChild===el && !IMG_ACTUAL) el.src=item.full;
+    };
+    hi.src=item.full;
+  }
+
+  const n=IMG_LIST.length;
+  document.getElementById("imgNum").textContent = n>1 ? `${IMG_IDX+1} / ${n}` : "";
+  const pv=document.getElementById("imgPrev"), nx=document.getElementById("imgNext");
+  pv.hidden = nx.hidden = n<=1;
+  pv.disabled = IMG_IDX<=0;
+  nx.disabled = IMG_IDX>=n-1;
+}
+
+function imgStep(delta){
+  if(!document.getElementById("imgMask").classList.contains("show")) return;
+  const j=IMG_IDX+delta;
+  if(j<0||j>=IMG_LIST.length) return;
+  IMG_IDX=j;
+  renderFullImage();
+}
+document.getElementById("imgStage").addEventListener("click", e=>{
+  const el=e.target.closest("img");
+  if(!el) return;
+  IMG_ACTUAL=!IMG_ACTUAL;
+  el.classList.toggle("actual", IMG_ACTUAL);
+});
+function closeImgMask(){
+  document.getElementById("imgMask").classList.remove("show");
+  document.getElementById("imgStage").innerHTML="";
+}
+document.getElementById("imgClose").onclick = closeImgMask;
+document.getElementById("imgPrev").onclick = e=>{ e.stopPropagation(); imgStep(-1); };
+document.getElementById("imgNext").onclick = e=>{ e.stopPropagation(); imgStep(1); };
+document.getElementById("imgMask").addEventListener("click", e=>{
+  if(e.target.id==="imgMask") closeImgMask();
+});
+
+// 键盘：Esc 关闭 / ←→ 翻图（图片全屏时）或翻条（详情页时）
+document.addEventListener("keydown", e=>{
+  const imgOpen=document.getElementById("imgMask").classList.contains("show");
+  const archOpen=document.getElementById("archiveMask").classList.contains("show");
+
+  if(e.key==="Escape"){
+    if(imgOpen){ closeImgMask(); return; }
+    if(archOpen){ if(ARCH.openId) backArchive(); else closeArchive(); }
+    return;
+  }
+  if(e.key==="ArrowLeft"||e.key==="ArrowRight"){
+    const d=e.key==="ArrowLeft"?-1:1;
+    if(imgOpen){ e.preventDefault(); imgStep(d); return; }
+    if(archOpen&&ARCH.openId){ e.preventDefault(); archStep(d); return; }
+  }
+});
+
+/* ======================== 访问鉴权登录框 ======================== */
+document.getElementById("authGo").onclick = doLogin;
+document.getElementById("authTok").addEventListener("keydown", e=>{
+  if(e.key==="Enter"){ e.preventDefault(); doLogin(); }
+});
+// 点遮罩空白处不关闭：没有凭证就什么也看不到，关掉只会让人以为坏了
 </script>
 </body>
 </html>

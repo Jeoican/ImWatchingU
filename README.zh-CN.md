@@ -131,6 +131,92 @@ targets:
 | `max_users` | 整数，默认 500 | 列表最多读多少人。日志会明确标注实际读取数量 |
 | `ignore_empty` | 布尔，默认 true | 跳过空歌单，避免新建歌单时刷屏 |
 
+### 数据变动推送（微信 / Bark）
+
+项目会在每轮巡检结束后，把**本轮所有变更合并成一条消息**推送；没有变更就不发。
+定时巡检和网页上手动点「立即巡检」都会触发。通知发送失败只记状态，不影响巡检本身。
+
+配置示例（密钥不要写进文件）：
+
+```yaml
+notify:
+  enabled: true
+  channels:
+    serverchan: true   # 微信：Server酱 Turbo
+    bark: true         # iPhone：Bark
+  max_names_per_group: 10
+  # dashboard_url: http://your-domain:8080   # 可选，消息末尾附看板链接
+```
+
+密钥只从环境变量读取：
+
+| 变量 | 用途 |
+|---|---|
+| `SW_NOTIFY_SERVERCHAN_KEY` | Server酱 Turbo 的 `SCT` 开头 SendKey，推送到微信服务号（免费版每天 5 条） |
+| `SW_NOTIFY_BARK_KEY` | Bark App 里的 device key，推送到 iPhone 系统通知 |
+| `SW_NOTIFY_BARK_SERVER` | 自建 Bark 服务地址，默认 `https://api.day.app` |
+| `SW_NOTIFY_PROXY` | 访问推送服务用的 HTTP 代理，如 `http://host.docker.internal:7890` |
+| `SW_DASHBOARD_URL` | 可选，看板公网地址 |
+
+也可以直接在网页的「通知推送」面板里填密钥（写进容器内 `data/notify.json`，不进 git）；
+环境变量优先级更高。
+
+#### Bark 连不上怎么办（TLS 握手被断开）
+
+容器里如果报这样的错：
+
+```
+URLError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol
+```
+
+说明容器到 `api.day.app` 的 TLS 握手被出口网络掐断了，**不是 key 写错**。先确认：
+
+```bash
+docker compose exec socialwatch curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 https://api.day.app/ping
+docker compose exec socialwatch curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 https://sctapi.ftqq.com/
+```
+
+前者 `000` + `exit=35`、后者 `200`，就是典型症状：Server酱 通、Bark 不通。
+
+两条解决路，任选其一：
+
+1. **Bark 经 Server酱 中转（最省事）**
+   在 Server酱控制台的「消息通道」里绑定你的 Bark DeviceToken，然后在网页通知面板勾上
+   「经 Server酱 中转」。之后程序只请求 `sctapi.ftqq.com`（`channel=8`），由 Server酱
+   服务端转发到你的 Bark App。微信 + Bark 同时开启时会合成**一次**请求（`channel=9|8`），
+   不多占额度。
+
+2. **给通知配代理**
+   宿主机上已有代理（Clash 等）时，把代理地址填进「网络代理」一栏，或用环境变量：
+
+   ```bash
+   SW_NOTIFY_PROXY=http://host.docker.internal:7890
+   ```
+
+   注意 `host.docker.internal` 在 macOS/Windows 的 Docker Desktop 上可用；Linux 需要
+   `--add-host=host.docker.internal:host-gateway`。另外很多代理只监听 `127.0.0.1`，
+   容器里连不到，需要让代理监听 `0.0.0.0` 或改用第一条方案。
+
+Docker 用户把密钥写进项目根目录的 `.env` 即可（`.env` 已 gitignore）：
+
+```bash
+SW_NOTIFY_SERVERCHAN_KEY=SCTxxxxxxxx
+SW_NOTIFY_BARK_KEY=xxxxxxxx
+```
+
+然后 `docker compose up -d --build` 重建生效。本机运行则先 `export` 这些变量。
+
+配置好后可以用一条命令验证链路（不会跑巡检、不会产生假变更）：
+
+```bash
+.venv/bin/python -m imwatching.cli notify-test
+# 容器内：docker compose exec socialwatch python -m imwatching.cli notify-test
+```
+
+网页通知面板里的「测试」按钮失败时，会自动做一次连通性探测，直接告诉你是哪个域名不通。
+
+Bark 的终点是 iPhone 通知中心，**不是微信**；要进微信请用 Server酱通道。Server酱免费版每天只有 5 条，如果监控目标很多、变更频繁，建议加大 `poll_interval_minutes` 或只开启部分通道。
+
 ## 登录
 
 四个平台里，有三个要拿到会话才能读超出公开计数以外的数据。两种方式：
@@ -185,8 +271,67 @@ docker compose restart                              # 容器自动注入
 | POST | `/api/targets` | 新增目标 |
 | PUT | `/api/targets/{idx}` | 修改目标（启停、选项） |
 | DELETE | `/api/targets/{idx}` | 删除目标（历史记录保留） |
+| GET | `/api/auth/status` | 是否需要登录、当前是否已通过（豁免） |
+| POST | `/api/auth/login` | 用 Token 换 HttpOnly Cookie |
+| POST | `/api/auth/logout` | 清除 Cookie |
+| GET | `/api/auth/tokens` | Token 清单（不含哈希） |
+| POST | `/api/auth/tokens/issue` | 签发新 Token，明文只返回一次 |
+| POST | `/api/auth/tokens/revoke` | 吊销指定 Token |
 
 配置变更采用**原子写入**——先写临时文件、校验、再原地替换，写到一半崩溃也不会损坏 `config.yaml`。
+
+## 访问鉴权
+
+默认**不启用**：没配 Token 时接口照旧开放，方便本机试用，也避免升级时把自己锁在门外。
+
+配好第一枚 Token 后自动转为强制鉴权，所有 `/api/*` 都需要凭证。三个豁免：
+
+| 路径 | 为什么豁免 |
+|---|---|
+| `/api/health` | Docker healthcheck 在容器内请求，带不了 Token。未鉴权时只回 `{"ok":true,"auth_required":true}`，不泄漏目标数量与登录态 |
+| `/api/auth/status` | 前端启动时先问「要不要弹登录框」，否则会先闪一串 401 |
+| `/api/auth/login` | 登录本身当然不能要求已登录 |
+
+### 两种凭证
+
+| 客户端 | 凭证 | 原因 |
+|---|---|---|
+| App / 脚本 | `Authorization: Bearer sw_...` | 干净，不受浏览器策略影响 |
+| 网页 | `sw_session` HttpOnly Cookie | `<img src="/api/archive/media">` 是浏览器原生加载，发不出自定义请求头，只能靠 Cookie |
+
+Cookie 是 `HttpOnly` + `SameSite=Lax`，前端 JS 读不到，XSS 也偷不走。
+Token 明文只在签发那一刻出现在终端，之后服务端只存 sha256 哈希。
+
+### 管理 Token
+
+```bash
+# 签发（明文只显示这一次）
+docker exec socialwatch python -m imwatching.cli token issue -n iphone-14pro --note "主力机"
+
+# 列出（看得到名称和时间，看不到 token 本身）
+docker exec socialwatch python -m imwatching.cli token list
+
+# 吊销 —— 立即生效，网页 Cookie 同时失效，无需重启容器
+docker exec socialwatch python -m imwatching.cli token revoke -n iphone-14pro
+
+# 临时关闭 / 重新启用（要关得显式操作，删掉最后一枚 Token 不会自动关门）
+docker exec socialwatch python -m imwatching.cli token disable
+docker exec socialwatch python -m imwatching.cli token enable
+```
+
+为什么必须走命令行：第一次签发时还没有任何凭证，网页端自己都进不去。
+命令行是唯一的 bootstrap 入口。
+
+Token 清单存在 `data/auth.json`（已在 `.gitignore` 里），改完不需要重启 ——
+服务端按文件指纹自动重读，宿主机上签发/吊销会立刻反映到容器内。
+
+### 挂到公网
+
+见 `deploy/README.md`，含 Caddy 反代配置与上线验证清单。
+
+要点：**不要把 `8080` 发布到 `0.0.0.0`**。本服务内部是明文 HTTP，
+直接对外等于让凭证明文上网、绕过 TLS。`docker-compose.yml` 已默认绑
+`127.0.0.1:8080`，外部访问一律走反代。
 
 ## 数据存储
 
@@ -209,6 +354,7 @@ ImWatchingU/
 │   ├── loginsession.py        # 网页扫码登录：Xvfb + 有界面浏览器 + 实时截图
 │   ├── scheduler.py           # 容器内定时调度器
 │   ├── runner.py              # 巡检执行器，CLI / Web / 调度器共用
+│   ├── notify.py              # 变更汇总推送（Server酱→微信 / Bark→iPhone）
 │   ├── core/                  # 与平台无关的领域逻辑
 │   │   ├── engine.py          #   变更比对与事件生成
 │   │   ├── store.py           #   SQLite 存储层（WAL 模式）
@@ -240,6 +386,11 @@ ImWatchingU/
 | `SW_BROWSER_CHANNEL` | `chrome` | 设为空字符串则用 Playwright 自带的 Chromium（容器内用） |
 | `SW_BROWSER_NO_SANDBOX` | 未设置 | 设为 `1` 加 `--no-sandbox`（以 root 运行时需要） |
 | `SW_STATE_FILE` | `data/state.json` | 注入的登录态 |
+| `SW_NOTIFY_SERVERCHAN_KEY` | 未设置 | Server酱 Turbo SendKey，推送到微信 |
+| `SW_NOTIFY_BARK_KEY` | 未设置 | Bark device key，推送到 iPhone |
+| `SW_NOTIFY_BARK_SERVER` | `https://api.day.app` | 自建 Bark 服务地址 |
+| `SW_NOTIFY_PROXY` | 未设置 | 访问推送服务的 HTTP 代理 |
+| `SW_DASHBOARD_URL` | 未设置 | 看板地址，通知末尾附链接 |
 | `PORT` / `HOST` | `8080` / `0.0.0.0` | 看板监听地址 |
 
 ## 容器化的几个坑

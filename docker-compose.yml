@@ -8,13 +8,24 @@ services:
     restart: unless-stopped
 
     ports:
-      # 左边是宿主机端口，改成 8899:8080 可避免与本机其它服务冲突
-      - "8080:8080"
+      # ⚠️ TODO（公网前必改）：当前为内网真机联调，临时绑到内网网卡。
+      #    上公网前必须恢复成 "127.0.0.1:8080:8080"，并前置 Caddy HTTPS 反代。
+      #    绝不能把明文 HTTP 直接发布到公网 —— Token 会被明文抓走，鉴权层白配。
+      #
+      # 当前状态：绑内网 IP，仅同一个 192.168.101.0/24 的设备可达。
+      # 这是有意的临时折中：手机真机（iOS 16.1.1）在内网联调时需要连后端，
+      # 而 Caddy 反代还没搭。安全边界由内网 + 防火墙承担，不是公网。
+      #
+      # 历史默认值（上公网后必须改回）："127.0.0.1:8080:8080"
+      - "192.168.101.163:8080:8080"
 
     volumes:
       # 配置与数据都挂出来：改配置不用重建镜像，历史数据不随容器销毁
       - ./config.yaml:/app/config.yaml
       - ./data:/app/data
+      # 前端页面只读挂载：改 HTML/CSS/JS 后 restart 即可生效，不必重建镜像。
+      # 早先打包进镜像，每次调样式都要 build 一轮（约 40 秒），迭代很别扭。
+      - ./web:/app/web:ro
 
     environment:
       TZ: Asia/Shanghai
@@ -26,7 +37,17 @@ services:
       # 共用会导致登录态被清空、两边互相破坏。
       SW_PROFILE_ROOT: /app/data/browser_container
       PORT: "8080"
+      # 容器内部仍监听 0.0.0.0 —— 这是必要的：Docker 的端口发布是
+      # 从宿主机转发进容器，容器内只绑 127.0.0.1 的话转发进不来。
+      # 对外暴露与否由上面的 ports 决定，不由这里决定。
       HOST: "0.0.0.0"
+
+      # 变更通知密钥：建议写进项目根目录的 .env（已 gitignore），
+      # 或直接在启动命令前用 export 设置，切勿提交到仓库。
+      SW_NOTIFY_SERVERCHAN_KEY: ${SW_NOTIFY_SERVERCHAN_KEY:-}
+      SW_NOTIFY_BARK_KEY: ${SW_NOTIFY_BARK_KEY:-}
+      SW_NOTIFY_BARK_SERVER: ${SW_NOTIFY_BARK_SERVER:-https://api.day.app}
+      SW_DASHBOARD_URL: ${SW_DASHBOARD_URL:-}
 
     # chromium 吃内存，给足资源；限制 CPU 保证不影响宿主机其他负载
     deploy:

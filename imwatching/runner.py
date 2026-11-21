@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from .core.store import Store
+from . import notify
 from .platforms import browser as platforms
 
 # 全局锁：调度器与手动触发可能同时到来，浏览器 profile 不能并发使用
@@ -73,13 +74,17 @@ def run_check(cfg: dict, store: Store, target_filter: str | None = None,
                 except Exception:  # noqa: BLE001
                     pass
 
-    return {
+    result = {
         "ok": True,
         "finished_at": int(time.time()),
         "duration_ms": int((time.time() - started) * 1000),
         "total_events": total_events,
         "results": results,
     }
+    # 通知失败不能影响巡检结果，dispatch 内部已吞掉所有异常。
+    # 放在这里而不是调度器里，定时巡检、网页手动巡检都会自动推送。
+    result["notify"] = notify.dispatch(cfg, results)
+    return result
 
 
 def check_is_running() -> bool:
