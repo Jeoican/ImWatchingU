@@ -123,6 +123,23 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
                                             willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         completionHandler([.banner, .sound, .badge])
+        // 前台收到通知时把刚加的角标清零：App 正开着，用户能直接看到内容，
+        // 留一个角标在图标上没有任何意义，反而变成"清不掉"的死角。
+        Task { @MainActor in
+            UIApplication.shared.applicationIconBadgeNumber = 0
+        }
+    }
+
+    /// 用户点击通知打开 App：立刻清角标。
+    /// 这是"角标无法交互清除"的另一半——从通知中心点进来时，
+    /// scenePhase 的 .active 变化未必被捕获（App 已在前台时），必须在这里兜底。
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                            didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
+        Task { @MainActor in
+            UIApplication.shared.applicationIconBadgeNumber = 0
+        }
+        completionHandler()
     }
 
     // MARK: 持久化基线

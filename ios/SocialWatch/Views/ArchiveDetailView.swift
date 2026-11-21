@@ -2,12 +2,11 @@ import SwiftUI
 
 /// 单条内容详情。
 ///
-/// 按平台还原各自的原生观感：
-/// - 微博：头像/昵称/时间 → 正文（#话题#、@用户 蓝色高亮）→ 九宫格方图
-///   → 转发/评论/点赞三栏 → 作者互动评论。
-/// - 小红书：作者栏 → 标题正文（#话题 蓝色）→ 大图逐张纵向排列
-///   → 点赞/收藏/评论 → 评论。
-/// - 其他平台沿用通用样式。
+/// 统一样式（用户要求）：所有平台都按微博那套展示——
+/// 头像/昵称/时间 → 正文（#话题#、@用户 蓝色高亮）→ 九宫格方图
+/// → 转发/评论/点赞三栏 → 作者互动评论 → 归档元信息。
+/// 小红书/抖音/网易云不再各用一套，视觉与交互完全一致，便于横向对照。
+/// （xhsDetail / genericDetail 暂留作备份，当前不启用。）
 ///
 /// 图片只用 thumb=1（900px ~105KB），进详情 0.4 秒内九宫格全可见；
 /// 点开全屏才拉原图。绝不首屏拉 4MB 原图。
@@ -46,11 +45,8 @@ struct ArchiveDetailView: View {
 
     @ViewBuilder
     private func content(for d: ArchiveDetail) -> some View {
-        switch d.platform {
-        case .weibo:       weiboDetail(d)
-        case .xiaohongshu: xhsDetail(d)
-        default:           genericDetail(d)
-        }
+        // 所有平台统一用微博样式；不再按平台分流。
+        weiboDetail(d)
     }
 
     // MARK: - 微博
@@ -179,7 +175,7 @@ struct ArchiveDetailView: View {
             Spacer(minLength: 0)
             if let urlStr = d.url, let url = URL(string: urlStr) {
                 Link(destination: url) {
-                    Text(d.platform == .xiaohongshu ? "看笔记" : "原微博")
+                    Text("查看原文")
                         .font(.system(size: 12, weight: .medium))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)

@@ -36,7 +36,13 @@ struct ArchiveListView: View {
 
     var body: some View {
         NavigationView {
-            List {
+            // 标签栏放在 List 之外的 VStack 里，而不是 safeAreaInset。
+            // 原因：plain List 的 Section header 吸顶 + safeAreaInset 的固定视图
+            // 在 iOS 16 上滚动时会互相挤压，出现标签栏抖动/被盖住的显示异常。
+            // 用 VStack 把它彻底移出滚动坐标系，标签栏就永久固定在顶部。
+            VStack(spacing: 0) {
+                sourceTabBar
+                List {
                 if sourceFilter == .netease {
                     // 网易云：直接列出歌单，点进去是歌曲列表并可播放
                     if let playlistError {
@@ -86,8 +92,9 @@ struct ArchiveListView: View {
                         }
                     }
                 }
+                }
+                .listStyle(.plain)
             }
-            .listStyle(.plain)
             .navigationTitle("内容库")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -104,10 +111,6 @@ struct ArchiveListView: View {
                         Image(systemName: "line.3.horizontal.decrease.circle")
                     }
                 }
-            }
-            // 顶部来源标签栏：固定在导航栏下方，滚动时不随列表移动。
-            .safeAreaInset(edge: .top, spacing: 0) {
-                sourceTabBar
             }
             .refreshable { loadForCurrentTab() }
             .task { loadForCurrentTab() }
@@ -136,37 +139,48 @@ struct ArchiveListView: View {
         }
     }
 
-    /// 顶部来源标签栏。只放平台文字，不显示来源徽章——徽章留给列表条目，
-    /// 标签本身要克制，一眼能扫过五个选项即可。
+    /// 顶部来源标签栏。横向可滚动：标签多/屏窄时能左右翻，选中的自动回到视野中央。
+    /// 只放平台文字，不显示来源徽章——徽章留给列表条目，标签本身要克制。
     private var sourceTabBar: some View {
-        HStack(spacing: 0) {
-            ForEach(SourceFilter.allCases) { f in
-                Button {
-                    if sourceFilter != f { sourceFilter = f; loadForCurrentTab() }
-                } label: {
-                    VStack(spacing: 6) {
-                        Text(f.label)
-                            .font(.system(size: 14, weight: sourceFilter == f ? .semibold : .regular))
-                            .foregroundColor(sourceFilter == f ? Color(red: 0.82, green: 0.28, blue: 0.22) : .secondary)
-                        Rectangle()
-                            .fill(sourceFilter == f ? Color(red: 0.82, green: 0.28, blue: 0.22) : Color.clear)
-                            .frame(height: 2)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(SourceFilter.allCases) { f in
+                        Button {
+                            if sourceFilter != f {
+                                sourceFilter = f
+                                loadForCurrentTab()
+                                withAnimation { proxy.scrollTo(f.id, anchor: .center) }
+                            }
+                        } label: {
+                            VStack(spacing: 6) {
+                                Text(f.label)
+                                    .font(.system(size: 14, weight: sourceFilter == f ? .semibold : .regular))
+                                    .foregroundColor(sourceFilter == f ? Color(red: 0.82, green: 0.28, blue: 0.22) : .secondary)
+                                Rectangle()
+                                    .fill(sourceFilter == f ? Color(red: 0.82, green: 0.28, blue: 0.22) : Color.clear)
+                                    .frame(height: 2)
+                            }
+                            // 固定宽度而非 maxWidth:.infinity：这样内容宽度可被撑开，
+                            // 横向 ScrollView 才有可滚动的空间，能左右翻。
+                            .frame(width: 76)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(f.label)
+                        .id(f.id)
                     }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(f.label)
+                .frame(height: 40)
             }
+            .background(Color.white)
+            .overlay(
+                Rectangle()
+                    .fill(Color(.systemGray5))
+                    .frame(height: 0.5),
+                alignment: .bottom
+            )
         }
-        .padding(.horizontal, 8)
-        .background(Color.white)
-        .overlay(
-            Rectangle()
-                .fill(Color(.systemGray5))
-                .frame(height: 0.5),
-            alignment: .bottom
-        )
     }
 
     private var headerRow: some View {

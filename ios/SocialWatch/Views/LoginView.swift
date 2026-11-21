@@ -11,7 +11,9 @@ import LocalAuthentication
 struct LoginView: View {
     @EnvironmentObject private var session: AppSession
 
-    @State private var baseURL: String = ""
+    // 预填 NAS 地址。域名 → 自动补 https，走正式证书。
+    // 用户只需再填 Token；密码类凭证绝不写进 App。
+    @State private var baseURL: String = "jeoi.tech:5671"
     @State private var token: String = ""
     @State private var message: String = ""
     @State private var isChecking = false
@@ -26,7 +28,7 @@ struct LoginView: View {
                         Text("服务器地址")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.secondary)
-                        TextField("192.168.1.5:8080 或 sw.example.com", text: $baseURL)
+                        TextField("jeoi.tech:5671 或 192.168.1.5:8080", text: $baseURL)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .keyboardType(.URL)

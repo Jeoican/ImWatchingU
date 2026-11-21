@@ -211,7 +211,13 @@ private struct SongRow: View {
 
 // MARK: - 迷你播放条
 
-/// 贴在 TabBar 上方的迷你播放器。只要有歌在队列里就显示，点它展开全屏。
+/// 悬浮在 TabBar 上方的迷你播放器（胶囊卡片）。
+/// 只要有歌在队列里就显示，点它展开全屏。
+///
+/// 为什么是悬浮胶囊而不是贴边整行：
+/// 旧版是一条铺满屏宽、白色不透明、紧贴 TabBar 的横条，视觉上压住了
+/// 「看板/内容库/设置」三个 Tab 选项。现在改成左右留边 + 圆角 + 阴影的
+/// 卡片，并用 padding 与 TabBar 拉开距离——内容不遮挡，Tab 选项也看得清。
 struct MiniPlayerBar: View {
     @ObservedObject private var player = AudioPlayer.shared
     @State private var showFullPlayer = false
@@ -241,11 +247,16 @@ struct MiniPlayerBar: View {
                                 .font(.system(size: 30))
                                 .foregroundColor(Color(red: 0.82, green: 0.28, blue: 0.22))
                         }
+                        // 按钮命中区放大，避免胶囊圆角处点不到
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
                         Button { player.next() } label: {
                             Image(systemName: "forward.fill")
                                 .font(.system(size: 18))
                                 .foregroundColor(.primary)
                         }
+                        .frame(width: 28, height: 40)
+                        .contentShape(Rectangle())
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
@@ -260,9 +271,22 @@ struct MiniPlayerBar: View {
                         }
                     }
                     .frame(height: 2)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
                 }
-                .background(Color.white)
-                .overlay(Rectangle().fill(Color(.systemGray5)).frame(height: 0.5), alignment: .top)
+                // 悬浮胶囊外观
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.white)
+                        .shadow(color: Color.black.opacity(0.14), radius: 10, x: 0, y: 3)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color(.systemGray4).opacity(0.5), lineWidth: 0.5)
+                )
+                // 左右留边 + 与 TabBar 的距离：这就是"悬浮"的观感来源
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
                 .sheet(isPresented: $showFullPlayer) { FullPlayerView().environmentObject(AudioPlayer.shared) }
             }
         }

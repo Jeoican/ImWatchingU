@@ -3,6 +3,9 @@ import SwiftUI
 @main
 struct SocialWatchApp: App {
     @StateObject private var session = AppSession()
+    /// 监听 App 生命周期：回到前台时清角标。只靠 onAppear 不够——
+    /// App 从后台恢复时 onAppear 不会再次触发，角标就会一直挂着。
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -24,6 +27,10 @@ struct SocialWatchApp: App {
                     // 仅调试期：主动打一枪后端，把结果写进系统日志。
                     StartupProbe.run()
                     #endif
+                }
+                // 从后台/锁屏点通知回到前台：清角标。这是角标"清不掉"的主因。
+                .onChange(of: scenePhase) { phase in
+                    if phase == .active { NotificationManager.shared.clearBadge() }
                 }
         }
     }

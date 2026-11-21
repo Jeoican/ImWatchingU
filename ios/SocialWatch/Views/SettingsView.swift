@@ -7,6 +7,11 @@ struct SettingsView: View {
     @ObservedObject private var notify = NotificationManager.shared
     @State private var showReloginConfirm = false
     @State private var notifyMessage: String?
+    // 从看板顶栏迁过来的三个入口
+    @State private var showTargets = false
+    @State private var showLogin = false
+    @State private var checkMessage: String?
+    @State private var isChecking = false
 
     private var cred: Credentials? { CredentialStore.shared.load() }
 
@@ -87,6 +92,40 @@ struct SettingsView: View {
                         .font(.system(size: 11)).foregroundColor(.secondary)
                 }
 
+                Section("管理") {
+                    // 立即巡检（原看板顶栏 ··· 菜单）
+                    Button {
+                        Task {
+                            guard !isChecking else { return }
+                            isChecking = true
+                            let msg = await vm.runCheck()
+                            await MainActor.run {
+                                checkMessage = msg ?? "已触发巡检"
+                                isChecking = false
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Label(isChecking ? "巡检中…" : "立即巡检", systemImage: "bolt")
+                            Spacer()
+                            if isChecking { ProgressView().scaleEffect(0.7) }
+                        }
+                    }
+                    .disabled(isChecking || vm.state?.check.running == true)
+
+                    // 平台登录（原看板顶栏 ··· 菜单 + 状态栏徽章）
+                    Button { showLogin = true } label: {
+                        Label("平台登录", systemImage: "person.crop.circle.badge.checkmark")
+                    }
+                    // 目标管理（原看板顶栏 ··· 菜单 + 空状态「去添加」）
+                    Button { showTargets = true } label: {
+                        Label("目标管理", systemImage: "list.bullet.circle")
+                    }
+                    if let msg = checkMessage {
+                        Text(msg).font(.system(size: 12)).foregroundColor(.secondary)
+                    }
+                }
+
                 Section("账号") {
                     Button(role: .destructive) { showReloginConfirm = true } label: {
                         Label("退出并重新配置", systemImage: "rectangle.portrait.and.arrow.right")
@@ -102,11 +141,13 @@ struct SettingsView: View {
                     Text("沃池 · 社媒变更监控")
                         .font(.system(size: 12)).foregroundColor(.secondary)
                 } footer: {
-                    Text("服务器地址为内网 IP 时自动用 http，域名用 https。Token 只保存在本机的受保护文件中。")
+                    Text("服务器地址为内网 IP 时自动用 http，域名用 https。NAS 地址 jeoi.tech:5671。Token 只保存在本机，密码不会写入 App。")
                 }
             }
             .listStyle(.insetGrouped)
             .navigationTitle("设置")
+            .sheet(isPresented: $showTargets) { TargetListView().environmentObject(vm) }
+            .sheet(isPresented: $showLogin) { PlatformLoginView() }
             .alert("退出登录", isPresented: $showReloginConfirm) {
                 Button("取消", role: .cancel) {}
                 Button("退出", role: .destructive) {

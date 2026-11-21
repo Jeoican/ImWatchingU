@@ -4,10 +4,12 @@ import SwiftUI
 /// 数据来自 DashboardViewModel（共享），30 秒轮询。
 struct DashboardView: View {
     @EnvironmentObject private var vm: DashboardViewModel
+    // 顶栏的「刷新」和「···菜单（立即巡检/平台登录/目标管理）」已移除，
+    // 功能统一挪到「设置」页。下面两个状态只服务看板正文本身：
+    // 状态栏的平台登录徽章、空状态卡片的「去添加」。
     @State private var showTargets = false
     @State private var showLogin = false
     @State private var selectedCard: MonitorCard?
-    @State private var toast: String?
 
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
 
@@ -26,7 +28,6 @@ struct DashboardView: View {
             .background(Color(red: 0.965, green: 0.965, blue: 0.955))
             .navigationTitle("监控看板")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbarContent }
             .refreshable { Task { await vm.refresh() } }
             .task {
                 vm.loadCached()          // 先显示上次缓存，秒开
@@ -40,62 +41,6 @@ struct DashboardView: View {
         .sheet(isPresented: $showLogin) { PlatformLoginView() }
         .sheet(item: $selectedCard) { card in
             ChangeRecordView(card: card).environmentObject(vm)
-        }
-        .overlay(alignment: .bottom) {
-            if let toast {
-                Text(toast)
-                    .font(.system(size: 14))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color.black.opacity(0.82))
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .padding(.bottom, 24)
-                    .transition(.opacity)
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
-                            withAnimation { self.toast = nil }
-                        }
-                    }
-            }
-        }
-    }
-
-    // MARK: 工具栏
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigationBarLeading) {
-            Button {
-                Task { await vm.refresh() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .disabled(vm.isLoading)
-        }
-        ToolbarItem(placement: .navigationBarTrailing) {
-            Menu {
-                Button {
-                    Task {
-                        let msg = await vm.runCheck()
-                        showToast(msg ?? "已触发巡检")
-                    }
-                } label: {
-                    Label(vm.state?.check.running == true ? "巡检中…" : "立即巡检",
-                          systemImage: "bolt")
-                }
-                .disabled(vm.state?.check.running == true)
-
-                Divider()
-                Button { showLogin = true } label: {
-                    Label("平台登录", systemImage: "person.crop.circle.badge.checkmark")
-                }
-                Button { showTargets = true } label: {
-                    Label("目标管理", systemImage: "list.bullet.circle")
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
         }
     }
 
@@ -206,10 +151,6 @@ struct DashboardView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 48)
-    }
-
-    private func showToast(_ msg: String) {
-        withAnimation { toast = msg }
     }
 
     private func timeText(_ d: Date) -> String {
