@@ -41,6 +41,14 @@
 	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>用于解锁私人存档</string>
+	<!--
+	  看图页的「保存到相册」需要这条。用 addOnly 语义的说明：
+	  App 只往里写，不读取用户已有照片，权限弹窗也会显示为「添加照片」。
+	  缺了这条键，请求写入权限会直接失败（不弹窗、不报错），
+	  用户点保存只会看到「点了没反应」。
+	-->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>用于把归档图片保存到你的相册</string>
 
 	<!--
 	  ATS：真机生产走 https 域名（NAS + Caddy），这套策略对它是透明的；

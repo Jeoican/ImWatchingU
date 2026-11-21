@@ -45,16 +45,29 @@ struct MusicPlaylistsResponse: Codable {
 }
 
 /// 一首歌。name 可能为 nil（采集时未登录拿不到元数据的占位项）。
+///
+/// `duration` / `cover` 是后补字段：老版本后端不返回它们，
+/// 所以都用 decodeIfPresent，旧数据照样能解码，界面上退化为不显示时长/封面。
 struct MusicSong: Codable, Identifiable, Sendable {
     let id: String
     let name: String?
     let artists: String?
     let album: String?
+    /// 时长（秒）。后端已从毫秒换算，nil 表示未知。
+    let duration: Int?
+    /// 专辑封面原图 URL（网易云 p2/p3/p4.music.126.net）。
+    let cover: String?
 
     var displayName: String { name ?? "未知歌曲 \(id)" }
 
+    /// mm:ss。未知时长返回空串，避免列表里出现一排 "0:00"。
+    var durationText: String {
+        guard let duration, duration > 0 else { return "" }
+        return String(format: "%d:%02d", duration / 60, duration % 60)
+    }
+
     enum CodingKeys: String, CodingKey {
-        case id, name, artists, album
+        case id, name, artists, album, duration, cover
     }
 
     init(from decoder: Decoder) throws {
@@ -63,6 +76,8 @@ struct MusicSong: Codable, Identifiable, Sendable {
         name = try c.decodeIfPresent(String.self, forKey: .name)
         artists = try c.decodeIfPresent(String.self, forKey: .artists)
         album = try c.decodeIfPresent(String.self, forKey: .album)
+        duration = try c.decodeIfPresent(Int.self, forKey: .duration)
+        cover = try c.decodeIfPresent(String.self, forKey: .cover)
     }
 }
 
@@ -85,4 +100,25 @@ struct PlayURL: Codable, Sendable {
 struct MusicURLsResponse: Codable {
     let ok: Bool
     let urls: [String: PlayURL]
+}
+
+// MARK: - 歌词
+
+/// 一行歌词。`t` 是这一行开始的时间（秒）。
+struct LyricLine: Codable, Identifiable, Sendable {
+    let t: Double
+    let text: String
+    /// 中文翻译。英文歌多数有，中文歌通常为 nil。
+    let tr: String?
+
+    var id: Double { t }
+}
+
+struct MusicLyricResponse: Codable {
+    let ok: Bool
+    let id: String
+    let lines: [LyricLine]
+    /// 后端明确告知「这首歌没有歌词」（纯音乐/下架曲），
+    /// 与「请求失败但 lines 为空」区分开：前者要显示「暂无歌词」，后者该显示错误。
+    let none: Bool
 }

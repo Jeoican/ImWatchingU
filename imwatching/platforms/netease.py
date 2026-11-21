@@ -138,14 +138,20 @@ def song_details(ids: list[str]) -> dict[str, dict]:
             continue
         for s in d.get("songs") or []:
             sid = str(s["id"])
+            al = s.get("al") or {}
             _song_cache[sid] = {
                 "name": s.get("name"),
                 "artists": "/".join(a.get("name", "") for a in (s.get("ar") or [])),
-                "album": (s.get("al") or {}).get("name"),
+                "album": al.get("name"),
+                # 时长（毫秒）与专辑封面：App 的歌曲列表要显示时长、
+                # 全屏播放器要显示大封面，这两个字段必须有。
+                # picUrl 是 http:// 开头，走 _https 升级，否则 https 页面会拦成混合内容。
                 "duration": s.get("dt"),
+                "cover": _https(al.get("picUrl")),
             }
         for c in chunk:
-            _song_cache.setdefault(c, {"name": None, "artists": None, "album": None, "duration": None})
+            _song_cache.setdefault(c, {"name": None, "artists": None, "album": None,
+                                       "duration": None, "cover": None})
         time.sleep(0.35)
 
     out = {}
@@ -154,7 +160,8 @@ def song_details(ids: list[str]) -> dict[str, dict]:
         if m.get("name"):
             out[i] = m
         else:
-            out[i] = {"name": f"歌曲(id {i})", "artists": None, "album": None, "duration": None}
+            out[i] = {"name": f"歌曲(id {i})", "artists": None, "album": None,
+                      "duration": None, "cover": None}
     return out
 
 
@@ -186,6 +193,10 @@ def fetch(uid: str) -> dict:
                     "name": names[sid]["name"],
                     "artists": names[sid].get("artists"),
                     "album": names[sid].get("album"),
+                    # 时长与封面一并落进快照：iOS 端歌曲列表要显示 mm:ss，
+                    # 播放器要显示专辑图，不能每次都回打上游。
+                    "duration": names[sid].get("duration"),
+                    "cover": names[sid].get("cover"),
                 }
                 for sid in ids
             },

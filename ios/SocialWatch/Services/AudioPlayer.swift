@@ -25,6 +25,22 @@ final class AudioPlayer: ObservableObject {
     /// 当前所在歌单名，迷你条与全屏页标题用
     @Published var playlistTitle: String = ""
 
+    // MARK: 歌词
+
+    @Published var lyrics: [LyricLine] = []
+    @Published var lyricLoading = false
+    /// 后端明确确认过「这首歌本来就没有歌词」（纯音乐等），
+    /// 与「还没加载完」区分开，避免歌词区长时间转圈。
+    @Published var lyricAbsent = false
+
+    /// 当前唱到第几行。播放器每次更新进度时算一次，
+    /// 用二分定位而不是遍历：几百行歌词 × 每 0.5 秒一次，遍历会白白耗电。
+    @Published var currentLyricIndex: Int = -1
+
+    private var lyricCache: [String: [LyricLine]] = [:]
+    /// 播放请求序号：快速切歌时只认最后一次请求的结果，避免旧请求抢占当前歌
+    private var playToken = 0
+
     var currentSong: MusicSong? {
         guard currentIndex >= 0, currentIndex < queue.count else { return nil }
         return queue[currentIndex]
@@ -40,8 +56,6 @@ final class AudioPlayer: ObservableObject {
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var audioSessionConfigured = false
-    /// 播放请求序号：快速切歌时只认最后一次请求的结果，避免旧请求抢占当前歌
-    private var playToken = 0
 
     private init() {
         configureRemoteCommands()
@@ -64,6 +78,9 @@ final class AudioPlayer: ObservableObject {
         currentTime = 0
         duration = 0
         isLoading = true
+        // 歌词与播放地址并行拉，两边互不等待：
+        // 歌词慢不该拖住出声，出声了歌词再补上也完全可接受。
+        loadLyrics(for: queue[index], token: token)
 
         let song = queue[index]
         Task {
@@ -86,6 +103,65 @@ final class AudioPlayer: ObservableObject {
         }
     }
 
+    // MARK: - 歌词
+
+    private func loadLyrics(for song: MusicSong, token: Int) {
+        // 切歌先清空，避免新歌开播前还挂着上一首的歌词（视觉上非常出戏）
+        lyrics = []
+        currentLyricIndex = -1
+        lyricAbsent = false
+
+        if let hit = lyricCache[song.id] {
+            lyrics = hit
+            lyricAbsent = hit.isEmpty
+            return
+        }
+        lyricLoading = true
+        Task {
+            // 歌词按 song_id 几乎不变，先用磁盘缓存兜住 —— 弱网也能看到词
+            if let cached = DataCache.load("music:lyric:\(song.id)", as: [LyricLine].self,
+                                           maxAge: 90 * 24 * 3600) {
+                self.lyricCache[song.id] = cached
+                guard token == self.playToken else { return }
+                self.lyrics = cached
+                self.lyricAbsent = cached.isEmpty
+                self.lyricLoading = false
+                return
+            }
+            do {
+                let (lines, none) = try await APIClient.shared.musicLyric(id: song.id)
+                guard token == self.playToken else { return }
+                self.lyricCache[song.id] = lines
+                self.lyrics = lines
+                self.lyricAbsent = none || lines.isEmpty
+                self.lyricLoading = false
+                if !lines.isEmpty {
+                    DataCache.save("music:lyric:\(song.id)", value: lines)
+                }
+            } catch {
+                guard token == self.playToken else { return }
+                self.lyricLoading = false
+                self.lyricAbsent = true
+            }
+        }
+    }
+
+    /// 二分找「最后一个 t <= 当前时间」的行号。返回 -1 表示还没唱到第一句。
+    ///
+    /// 为什么不用 `lyrics.lastIndex(where:)`：那是 O(n) 全扫，
+    /// 而这个方法每 0.5 秒被调一次、歌词常有 60–100 行，
+    /// 二分是 O(log n)，代价可以忽略。且歌词已按时间升序，前提成立。
+    private func lyricIndex(at time: Double) -> Int {
+        guard !lyrics.isEmpty else { return -1 }
+        if time < lyrics[0].t { return -1 }
+        var lo = 0, hi = lyrics.count - 1
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            if lyrics[mid].t <= time { lo = mid } else { hi = mid - 1 }
+        }
+        return lo
+    }
+
     private func start(url: URL) {
         teardownPlayer()
 
@@ -105,6 +181,9 @@ final class AudioPlayer: ObservableObject {
                 guard let self else { return }
                 self.currentTime = t.isFinite ? t : 0
                 if d.isFinite && d > 0 { self.duration = d }
+                let idx = self.lyricIndex(at: self.currentTime)
+                // 只在换行时写 @Published，避免每 0.5 秒都触发全视图重绘
+                if idx != self.currentLyricIndex { self.currentLyricIndex = idx }
             }
         }
 

@@ -156,29 +156,43 @@ struct MainTabView: View {
     }()
     #endif
 
-    #if DEBUG
-    private var tabSelection: Binding<Int> { $debugTab }
-    #else
-    private var tabSelection: Binding<Int> { .constant(0) }
-    #endif
+    /// 上次停留的 Tab 页（0 看板 / 1 内容库 / 2 设置）。
+    ///
+    /// 之前 Release 分支把它写成了 `.constant(0)` —— 这是个只读常量绑定，
+    /// TabView 无论怎么点都只能停在 0，于是「切出 App 再回来」总落回看板页。
+    /// 现在持久化到 UserDefaults：退到后台、被系统回收、甚至手动杀掉重开，
+    /// 都从上次那一页继续，符合「哪里退出哪里回来」的直觉。
+    ///
+    /// 为什么用 @AppStorage 而不是 @SceneStorage：
+    /// @SceneStorage 的生命周期绑在 UIScene 会话上，用户在后台多任务里
+    /// 划掉 App 时会被一并清除，那种情况反而会退回看板 —— 正是用户抱怨的场量。
+    @AppStorage("sw_selected_tab") private var storedTab: Int = 0
+
+    private var tabSelection: Binding<Int> {
+        Binding(
+            get: {
+                #if DEBUG
+                // 自动化验证通道优先：SW_TAB 指定哪页就停哪页，
+                // 不受 UserDefaults 里残留的上次选择影响。
+                if ProcessInfo.processInfo.environment["SW_TAB"] != nil { return debugTab }
+                #endif
+                return (0...2).contains(storedTab) ? storedTab : 0
+            },
+            set: { newValue in
+                storedTab = newValue
+                #if DEBUG
+                debugTab = newValue
+                #endif
+            }
+        )
+    }
 
     var body: some View {
         #if DEBUG
         if ProcessInfo.processInfo.environment["SW_DEBUG_MUSIC"] == "1" {
-            NavigationView { PlaylistListView() }
-                .overlay(alignment: .bottomTrailing) {
-                    MiniPlayerBubble().padding(.trailing, 16).padding(.bottom, 16)
-                }
+            debugStagePlaylist
         } else if ProcessInfo.processInfo.environment["SW_DEBUG_MUSIC"] == "songs" {
-            NavigationView {
-                SongListView(playlist: MusicPlaylist(
-                    targetKey: "netease:316198477", targetName: "云朵也会有烦恼",
-                    id: "439449787", name: "云朵也会有烦恼喜欢的音乐",
-                    cover: nil, trackCount: 1033))
-            }
-            .overlay(alignment: .bottomTrailing) {
-                MiniPlayerBubble().padding(.trailing, 16).padding(.bottom, 16)
-            }
+            debugStageSongs
         } else if let id = debugDetail {
             NavigationView {
                 ArchiveDetailView(itemID: id)
@@ -195,6 +209,37 @@ struct MainTabView: View {
         tabView
         #endif
     }
+
+    #if DEBUG
+    /// 验证用分支：歌单列表页 + 悬浮球。
+    ///
+    /// 为什么用 ZStack 而不是 .overlay：
+    /// overlay 加在 NavigationView 上时，SwiftUI 会把它挂进被导航管理的
+    /// 内容层级，列表滚动后的白底会盖住它（实测悬浮球"渲染了但看不见"）。
+    /// ZStack 明确把球放在最上层，与正式 tabView 的层级结构一致。
+    private var debugStagePlaylist: some View {
+        ZStack(alignment: .bottomTrailing) {
+            NavigationView { PlaylistListView() }
+            MiniPlayerBubble()
+                .padding(.trailing, 16)
+                .padding(.bottom, 24)
+        }
+    }
+
+    private var debugStageSongs: some View {
+        ZStack(alignment: .bottomTrailing) {
+            NavigationView {
+                SongListView(playlist: MusicPlaylist(
+                    targetKey: "netease:316198477", targetName: "云朵也会有烦恼",
+                    id: "439449787", name: "云朵也会有烦恼喜欢的音乐",
+                    cover: nil, trackCount: 1033))
+            }
+            MiniPlayerBubble()
+                .padding(.trailing, 16)
+                .padding(.bottom, 24)
+        }
+    }
+    #endif
 
     private var tabView: some View {
         GeometryReader { proxy in

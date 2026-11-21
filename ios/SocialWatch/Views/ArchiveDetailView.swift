@@ -1,4 +1,5 @@
 import SwiftUI
+import Photos
 
 /// 单条内容详情。
 ///
@@ -33,7 +34,17 @@ struct ArchiveDetailView: View {
         }
         .navigationTitle(detail?.platform?.label ?? "详情")
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        .task {
+            await load()
+            #if DEBUG
+            // 自动化验证通道：模拟器无法注入点击，靠 env 直接打开全屏看图，
+            // 用于核对原图画质、无白边、单击/下滑退出。Release 无此代码。
+            if ProcessInfo.processInfo.environment["SW_DEBUG_IMAGE"] == "1",
+               let d = detail, !d.media.isEmpty, fullscreenIndex == nil {
+                fullscreenIndex = FullscreenSelection(id: 0)
+            }
+            #endif
+        }
         .fullScreenCover(item: $fullscreenIndex) { sel in
             if let detail {
                 ImageViewer(media: detail.media, startIndex: sel.id, itemID: detail.id)
@@ -431,18 +442,40 @@ private struct WeiboGridImage: View {
 
 // MARK: - 全屏看图
 
-/// 三档渐进 + 双指缩放 + 手势翻页。
+/// 全屏看图：原图画质 + 双指缩放 + 单击/下滑退出 + 存相册。
 ///
-/// 三档顺序（这是 web 端验证过的策略）
+/// 画质策略（用户反馈「点开显示的不是原图，有点糊」）
+/// ------------------------------------------------
+/// 旧实现默认铺 thumb=1（长边 900px），只有双击才换原图 ——
+/// 在 iPhone 上 900px 铺满 393pt 宽的屏幕，放大后立刻能看出糊。
+/// 现在改成「预览 + 原图」双路并发：thumb=1 通常已在九宫格阶段
+/// 落进缓存，所以它瞬间可用（避免黑屏等待），原图随后到位即替换。
+/// 两条路各自独立取消，不会互相抢占 —— 这一点很重要，
+/// ImageLoader 的 task 是单槽的，用同一个实例连发两次会取消前一次。
+///
+/// 白边（用户反馈「图片四周有一圈白边」）
 /// ---------------------------------
-/// 先铺 thumb=1（900px, ~105KB，几乎瞬到）→ 后台静默换原图。
-/// 一上来就拉 4MB 原图会黑屏等 0.3–1 秒，体验很差。
-/// 只有用户双击 1:1 时才必须原图 —— 那时他已明确要看细节。
+/// 根因在 RemoteImage 的卡片外观：`RoundedRectangle(cornerRadius: 8)`
+/// 裁角 + 0.5pt 浅灰描边。白底列表里这是必要的分隔，
+/// 但黑底全屏下它会变成一圈发亮的白边、还把图片四角啃掉。
+/// 这里不走 RemoteImage，直接自绘 Image，从根上不画任何边框。
 struct ImageViewer: View {
     let media: [ArchiveMedia]
     let itemID: Int
     @State private var index: Int
+    /// 每页已加载到的图片，供「保存」取用。
+    /// 用字典按页号存而不是单个状态：TabView 会预载相邻页，
+    /// 单个变量会被邻页的图覆盖，保存下来就成了隔壁那张。
+    @State private var images: [Int: UIImage] = [:]
+    /// 下滑进度 0…1，用于背景淡出
+    @State private var dismissProgress: CGFloat = 0
+    @State private var saveAlert: SaveAlert?
     @Environment(\.dismiss) private var dismiss
+
+    private struct SaveAlert: Identifiable {
+        let id = UUID()
+        let title: String
+    }
 
     init(media: [ArchiveMedia], startIndex: Int, itemID: Int) {
         self.media = media
@@ -452,96 +485,163 @@ struct ImageViewer: View {
 
     var body: some View {
         ZStack {
-            Color.black.ignoresSafeArea()
+            // 背景随下滑淡出，松手回弹 —— 这是 iOS 相册的同款观感
+            Color.black
+                .opacity(1 - 0.55 * min(max(dismissProgress, 0), 1))
+                .ignoresSafeArea()
 
             TabView(selection: $index) {
                 ForEach(Array(media.enumerated()), id: \.element.id) { i, m in
-                    ZoomableImage(itemID: itemID, media: m)
+                    ZoomableImage(itemID: itemID,
+                                  media: m,
+                                  pageIndex: i,
+                                  images: $images,
+                                  dismissProgress: $dismissProgress,
+                                  onDismiss: { dismiss() })
                         .tag(i)
                 }
             }
+            // 圆点翻页指示器永久关掉（用户要求：底部翻页控件无需显示）
             .tabViewStyle(.page(indexDisplayMode: .never))
             .ignoresSafeArea()
 
             overlay
         }
         .statusBarHidden(true)
+        .alert(item: $saveAlert) { a in
+            Alert(title: Text(a.title))
+        }
     }
 
     private var overlay: some View {
         VStack {
-            HStack {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
+            ZStack {
+                HStack {
+                    circleButton("xmark") { dismiss() }
+                    Spacer()
+                    circleButton("square.and.arrow.down") { save() }
                 }
-                Spacer()
-                Text("\(index + 1) / \(media.count)")
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Capsule())
+                // 计数器居中，不参与两侧按钮的布局
+                if media.count > 1 {
+                    Text("\(index + 1) / \(media.count)")
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
 
             Spacer()
+        }
+    }
 
-            if media.count > 1 {
-                HStack(spacing: 32) {
-                    Button { if index > 0 { index -= 1 } } label: {
-                        Image(systemName: "chevron.left")
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
-                    }
-                    .disabled(index == 0)
-                    .opacity(index == 0 ? 0.35 : 1)
+    private func circleButton(_ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 44, height: 44)
+                .background(.ultraThinMaterial)
+                .clipShape(Circle())
+        }
+    }
 
-                    Button { if index < media.count - 1 { index += 1 } } label: {
-                        Image(systemName: "chevron.right")
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial)
-                            .clipShape(Circle())
-                    }
-                    .disabled(index == media.count - 1)
-                    .opacity(index == media.count - 1 ? 0.35 : 1)
-                }
-                .padding(.bottom, 28)
+    private func save() {
+        guard let img = images[index] else {
+            saveAlert = SaveAlert(title: "图片还没加载完成，稍等一下再保存")
+            return
+        }
+        PhotoSaver.save(img) { result in
+            switch result {
+            case .success:
+                saveAlert = SaveAlert(title: "已保存到相册")
+            case .failure(let err):
+                let denied = (err as? PhotoSaver.Denied) != nil
+                saveAlert = SaveAlert(title: denied
+                    ? "没有相册写入权限，请到 设置 › 沃池 › 照片 里打开「添加照片」"
+                    : "保存失败：\(err.localizedDescription)")
             }
         }
     }
 }
 
-/// 可缩放的单张图。
-struct ZoomableImage: View {
+/// 可缩放的单张图。手势分工：
+///   · 未缩放 → 纵向拖拽 = 下滑退出（图片跟手、缩小、背景淡出）
+///   · 已缩放 → 拖拽 = 平移图片，下滑退出暂时让位（否则放大的图没法看局部）
+///   · 单击 = 退出，双击 = 1x ↔ 2x
+///
+/// 为什么拖拽用 `simultaneousGesture` 而不是 `gesture`：
+/// 独占的 DragGesture 会把横向拖动一起吃掉，TabView 就翻不了页了。
+/// simultaneous 让 ScrollView 的翻页和我们的纵向拖拽同时识别，
+/// 靠「纵向位移大于横向」这个门槛把两者分开。
+private struct ZoomableImage: View {
     let itemID: Int
     let media: ArchiveMedia
+    let pageIndex: Int
+    @Binding var images: [Int: UIImage]
+    @Binding var dismissProgress: CGFloat
+    var onDismiss: () -> Void
+
+    /// 900px 预览图：九宫格阶段已缓存，进来基本瞬显
+    @StateObject private var preview = ImageLoader()
+    /// 原图：3–7MB，慢一点，到位后替换预览
+    @StateObject private var full = ImageLoader()
 
     @State private var scale: CGFloat = 1
     @State private var lastScale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
-    @State private var isActual = false
+    @State private var dragY: CGFloat = 0
+
+    private var isZoomed: Bool { scale > 1.01 }
+    private var displayImage: UIImage? { full.image ?? preview.image }
 
     var body: some View {
         GeometryReader { geo in
-            RemoteImage(itemID: itemID, seq: media.seq,
-                        tier: isActual ? .original : .detail,
-                        aspectRatio: media.aspectRatio)
-                .scaleEffect(scale)
-                .offset(offset)
-                .gesture(magnification)
-                .onTapGesture(count: 2) { toggleActual() }
-                .frame(width: geo.size.width, height: geo.size.height)
+            ZStack {
+                if let img = displayImage {
+                    Image(uiImage: img)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                } else {
+                    ZStack {
+                        // 黑底上不要骨架色块，只留一个小转圈
+                        ProgressView().tint(.white)
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            // 下滑时同步缩小，最像系统相册的「往下甩掉」
+            .scaleEffect(isZoomed ? scale : scale * (1 - min(max(dragY, 0) / 900, 0.22)))
+            .offset(x: isZoomed ? offset.width : 0,
+                    y: isZoomed ? offset.height : dragY)
+            .gesture(magnification)
+            .simultaneousGesture(panOrDismiss)
+            .onTapGesture(count: 2) { toggleZoom() }
+            .onTapGesture { onDismiss() }
+            .contentShape(Rectangle())
         }
-        .clipped()
+        .ignoresSafeArea()
+        .onAppear { load() }
+        // 预览/原图任一到位就记下，供「保存」用
+        .onReceive(preview.$image) { img in
+            if let img { images[pageIndex] = img }
+        }
+        .onReceive(full.$image) { img in
+            if let img { images[pageIndex] = img }
+        }
+    }
+
+    private func load() {
+        // 先铺预览（大概率命中缓存），再拉原图。两个独立 loader，互不取消。
+        preview.load(itemID: itemID, seq: media.seq, tier: .detail)
+        full.load(itemID: itemID, seq: media.seq, tier: .original)
     }
 
     private var magnification: some Gesture {
@@ -552,22 +652,81 @@ struct ZoomableImage: View {
             .onEnded { _ in
                 lastScale = scale
                 if scale <= 1.02 {
-                    scale = 1; lastScale = 1
-                    offset = .zero; lastOffset = .zero
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        scale = 1; lastScale = 1
+                        offset = .zero; lastOffset = .zero
+                    }
                 }
             }
     }
 
-    private func toggleActual() {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            if isActual {
-                isActual = false
+    private var panOrDismiss: some Gesture {
+        DragGesture(minimumDistance: 6)
+            .onChanged { v in
+                if isZoomed {
+                    offset = CGSize(width: lastOffset.width + v.translation.width,
+                                    height: lastOffset.height + v.translation.height)
+                } else {
+                    // 横向位移更大 → 用户想翻页，把这一页的退出手势让出去
+                    guard abs(v.translation.height) > abs(v.translation.width) else { return }
+                    dragY = v.translation.height
+                    dismissProgress = min(max(v.translation.height / 400, 0), 1)
+                }
+            }
+            .onEnded { v in
+                if isZoomed {
+                    lastOffset = offset
+                } else {
+                    let should = dragY > 120 || v.predictedEndTranslation.height > 300
+                    if should {
+                        onDismiss()
+                    } else {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+                            dragY = 0
+                            dismissProgress = 0
+                        }
+                    }
+                }
+            }
+    }
+
+    private func toggleZoom() {
+        withAnimation(.easeInOut(duration: 0.22)) {
+            if isZoomed {
                 scale = 1; lastScale = 1
                 offset = .zero; lastOffset = .zero
             } else {
-                isActual = true
-                scale = 1.6; lastScale = 1.6
+                scale = 2.2; lastScale = 2.2
             }
+        }
+    }
+}
+
+// MARK: - 存相册
+
+/// 保存图片到系统相册。
+/// 走 PHPhotoLibrary 而不是老的 UIImageWriteToSavedPhotosAlbum：
+/// 后者没有结果回调，失败（多半是没权限）时用户只会觉得「点了没反应」。
+enum PhotoSaver {
+    struct Denied: LocalizedError {
+        var errorDescription: String? { "无相册写入权限" }
+    }
+
+    static func save(_ image: UIImage,
+                     completion: @escaping (Result<Void, Error>) -> Void) {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async { completion(.failure(Denied())) }
+                return
+            }
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
+            }, completionHandler: { ok, err in
+                DispatchQueue.main.async {
+                    if ok { completion(.success(())) }
+                    else { completion(.failure(err ?? Denied())) }
+                }
+            })
         }
     }
 }

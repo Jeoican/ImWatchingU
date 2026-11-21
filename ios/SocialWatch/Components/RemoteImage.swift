@@ -109,6 +109,13 @@ struct RemoteImage: View {
     let seq: Int
     let tier: ThumbTier
     let aspectRatio: Double
+    /// 是否绘制「圆角 + 描边」这套卡片外观。
+    ///
+    /// 列表/九宫格里它是必要的：白底页面上方形图片的直角显得生硬，
+    /// 描边能把图和正文分开。但在全屏黑底看图时它就是缺陷 ——
+    /// 圆角会把图片四角啃掉、描边在黑底上变成一圈发亮的白边，
+    /// 用户看到的就是「图片四周有一圈白边」。所以全屏态传 false。
+    var showsChrome: Bool = true
 
     @StateObject private var loader = ImageLoader()
 
@@ -129,10 +136,11 @@ struct RemoteImage: View {
             }
         }
         .aspectRatio(aspectRatio, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: showsChrome ? 8 : 0, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(red: 0.88, green: 0.88, blue: 0.86), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: showsChrome ? 8 : 0, style: .continuous)
+                .stroke(Color(red: 0.88, green: 0.88, blue: 0.86),
+                        lineWidth: showsChrome ? 0.5 : 0)
         )
         .onAppear {
             loader.load(itemID: itemID, seq: seq, tier: tier)

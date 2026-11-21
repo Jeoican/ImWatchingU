@@ -984,6 +984,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True, "urls": _music.play_urls(ids)})
                 return
 
+            if path == "/api/music/lyric":
+                from .core import music as _music
+                sid = (q.get("id") or [""])[0]
+                if not sid:
+                    self._json({"ok": False, "message": "缺少 id"}, 400)
+                    return
+                got = _music.lyric(sid)
+                self._json({"ok": True, "id": sid,
+                            "lines": got["lines"], "none": got["none"]})
+                return
+
             if path == "/api/img":
                 url = (q.get("url") or [""])[0]
                 got = fetch_image(url)

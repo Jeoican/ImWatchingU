@@ -383,6 +383,13 @@ final class APIClient {
         return r.urls
     }
 
+    /// 取逐行歌词。返回 (行, 是否确认无歌词)。
+    /// 歌词按 song_id 基本不变，调用方应长期缓存（见 DataCache）。
+    func musicLyric(id: String) async throws -> (lines: [LyricLine], none: Bool) {
+        let r: MusicLyricResponse = try await get("/api/music/lyric", query: ["id": id])
+        return (r.lines, r.none)
+    }
+
     // MARK: - 图片代理（任意远程 URL，如头像/封面）
 
     /// `/api/img?url=` 的带鉴权请求。头像/歌单封面走它；
