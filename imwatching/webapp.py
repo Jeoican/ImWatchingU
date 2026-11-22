@@ -1097,7 +1097,8 @@ class Handler(BaseHTTPRequestHandler):
 
                 ext = p.suffix.lower()
                 ctype = {".png": "image/png", ".webp": "image/webp",
-                         ".gif": "image/gif"}.get(ext, "image/jpeg")
+                         ".gif": "image/gif", ".heic": "image/heic"}.get(
+                             ext, "image/jpeg")
                 self._send_file(p, ctype, max_age=604800 if not thumb_edge else 0)
                 return
 

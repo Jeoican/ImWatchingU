@@ -661,6 +661,102 @@ def _xhs_unjson(s: str | None) -> str:
             .replace("\\u003C", "<").replace("\\u003E", ">").strip())
 
 
+# 小红书原图通道。SSR 的 imageList[].fileId 就是 CDN 上的真实文件标识
+# （形如 notes_pre_post/1040g3k8321v873f47ea04a580654utjk3gq55g0），
+# 拼到下面任一 host 上就是**未经压缩的原始 JPEG**。
+#
+# 为什么不用详情页给的 urlDefault：那是 sns-webpic-qc 的
+# "!nd_dft_wlteh_webp_3" 处理档，CDN 已按 1080 宽重新编码过。
+# 实测同一条笔记的同一张图：
+#   urlDefault（webpic 处理档）→ 1080×1440，186KB
+#   原图（ci.xiaohongshu.com）→ 4284×5712，4.4MB
+# 两者像素差 4 倍、字节差 24 倍，所以取原图是必须的。
+_XHS_ORIGIN_HOSTS = ("https://ci.xiaohongshu.com/", "https://sns-img-bd.xhscdn.com/")
+
+
+def _xhs_file_id(file_id: str, fallback_url: str = "") -> str:
+    """取出小红书图片在 CDN 上的文件标识。
+
+    优先用 SSR 直接给的 fileId；拿不到就从地址反推：
+      https://sns-webpic-qc.xhscdn.com/<日期>/<hash>/<fileId>!<处理参数>
+    去掉前两段（日期、hash）和 ! 之后的部分，剩下的就是 fileId。
+    已经本身就是原图直链（ci.xiaohongshu.com/{fileId}）时，直接取路径部分。
+
+    ⚠️ fileId 里**可能带目录前缀**（notes_pre_post/xxx、notes_uhdr/xxx、
+    note_pre_post_uhdr/xxx），而且前缀必须保留 —— 实测：
+
+        ci.xiaohongshu.com/notes_pre_post/1040g3k831v8p5op5ii704a580654utjki6fo060
+            → 200  5.1MB  4284×5712
+        ci.xiaohongshu.com/1040g3k831v8p5op5ii704a580654utjki6fo060
+            → 404
+
+    所以这里只剥掉「日期/hash」和「! 之后」两段，中间一律原样保留。
+    """
+    fid = (file_id or "").strip().strip("/")
+    if fid:
+        return fid
+    u = (fallback_url or "").strip()
+    m = re.match(r"^https?://sns-webpic-[a-z]+\.xhscdn\.com/[^/]+/[^/]+/(.+)$", u)
+    if m:
+        return m.group(1).split("!")[0].strip("/")
+    # 已经是原图直链（可能带 imageView2 转码参数）
+    m = re.match(r"^https?://(?:ci\.xiaohongshu\.com|sns-img-bd\.xhscdn\.com)/(.+)$", u)
+    if m:
+        return m.group(1).split("?")[0].strip("/")
+    return ""
+
+
+def _xhs_origin_urls(file_id: str, fallback_url: str = "") -> list[str]:
+    """原图直链候选（按优先级）。file_id 取不到时返回空列表。"""
+    fid = _xhs_file_id(file_id, fallback_url)
+    if not fid:
+        return []
+    return [h + fid for h in _XHS_ORIGIN_HOSTS]
+
+
+def xhs_origin_candidates(file_id: str, fallback_url: str = "") -> list[str]:
+    """原图直链候选全集：SSR 的 fileId 与 webpic 地址反推的**都**给。
+
+    为什么两个来源都要
+    ------------------
+    原图直链的 fileId 可能带目录前缀（notes_pre_post/xxx），也可能不带。
+    SSR 的 `imageList[].fileId` 到底带不带前缀并不稳定，而**前缀带错就是
+    404**（实测：带前缀 200/5.1MB，去掉前缀 404）。
+
+    哪个来源带前缀，只有实际发一次请求才知道。所以这里不猜：把两个来源
+    各自拼出的候选都列出来，由下载端按顺序试，第一个成功的即采用。
+    这比"选一个看起来更权威的来源"稳得多 —— 猜错一次就是静默退回
+    1080 宽压缩档，用户看到的就是「保存的图不如 App 清晰」。
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(fid: str) -> None:
+        if not fid:
+            return
+        for h in _XHS_ORIGIN_HOSTS:
+            u = h + fid
+            if u not in seen:
+                seen.add(u)
+                out.append(u)
+
+    # 来源 1：SSR 直接给的 fileId
+    add(_xhs_file_id(file_id, ""))
+    # 来源 2：从 webpic 地址反推（这里的路径段天然带目录前缀）
+    add(_xhs_file_id("", fallback_url))
+    return out
+
+
+def xhs_origin_url(url: str) -> str:
+    """从一条 webpic 图片地址反推出它的原图直链；推不出返回空串。
+
+    主页封面（noteCard.cover.urlDefault）走这条：详情页拿不到时至少把封面
+    存成原图，而不是 CDN 压过的 640 宽版本。
+    """
+    urls = xhs_origin_candidates("", url)
+    return urls[0] if urls else ""
+
+
 def _xhs_post_items(notes_seg: str, user_id: str) -> list[dict]:
     """从 SSR 的 notes 段里取最近笔记（标题 / 封面 / 点赞 / 链接 / xsecToken）。
 
@@ -728,13 +824,20 @@ def _xhs_post_items(notes_seg: str, user_id: str) -> list[dict]:
 def xhs_note_images(page, note_id: str, xsec_token: str = "") -> list[dict]:
     """打开笔记详情页，取 imageList 里全部图片（含每张的真实宽高）。
 
-    返回 [{"url":..., "width":..., "height":...}]，失败返回空列表。
+    返回 [{"url":..., "fallback_url":..., "width":..., "height":...}]，失败返回空列表。
 
     为什么必须走详情页：用户主页 SSR 的 cover 只有 1 张，多图笔记在主页
     也只露封面。详情页的 note.imageList 才是完整列表（实测 9 张笔记
     在主页显示 1 张、详情页 9 张）。
     详情页必须有 xsec_token，否则 SSR 里 noteDetailMap 的 key 是
     "undefined"、note 是空对象 —— 这是之前一直"只有一张图"的根本原因。
+
+    为什么 url 是原图而不是 urlDefault：
+    urlDefault 指向 sns-webpic-qc 的 "!nd_dft_wlteh_webp_3" 处理档，
+    那是 CDN 按 1080 宽重新编码过的 webp（实测 1080×1440 / 186KB）；
+    同一张图的原始 JPEG 在 ci.xiaohongshu.com 上（实测 4284×5712 / 4.4MB）。
+    所以这里用 imageList[].fileId 拼原图直链，urlDefault 仅作兜底
+    （fileId 取不到、或原图通道下载失败时退回）。
     """
     url = f"https://www.xiaohongshu.com/explore/{note_id}"
     if xsec_token:
@@ -755,6 +858,7 @@ def xhs_note_images(page, note_id: str, xsec_token: str = "") -> list[dict]:
                   if(n && n.imageList && n.imageList.length) {
                     return n.imageList.map(x=>({
                       url: x.urlDefault||'',
+                      fileId: x.fileId||'',
                       width: x.width||0, height: x.height||0,
                       infos: (x.infoList||[]).map(i=>({scene:i.imageScene, url:i.url})),
                     }));
@@ -778,9 +882,18 @@ def xhs_note_images(page, note_id: str, xsec_token: str = "") -> list[dict]:
                 best = (best or "").replace("\\u002F", "/")
                 if best.startswith("http://"):
                     best = "https://" + best[7:]
-                if best:
-                    out.append({"url": best, "width": x.get("width") or 0,
-                                "height": x.get("height") or 0, "seq": i + 1})
+                # 原图直链：SSR fileId 与 webpic 地址反推的候选都带上。
+                # 前缀带错就 404，所以两个来源都试，下载端按序取第一个成功的。
+                origins = xhs_origin_candidates(x.get("fileId") or "", best)
+                origin = origins[0] if origins else ""
+                if not origin and not best:
+                    continue
+                out.append({"url": origin or best, "fallback_url": best,
+                            "origin_url": origin,
+                            "origin_alt": origins[1] if len(origins) > 1 else "",
+                            "origin_candidates": origins,
+                            "width": x.get("width") or 0,
+                            "height": x.get("height") or 0, "seq": i + 1})
             return out
         page.wait_for_timeout(500)
     return []

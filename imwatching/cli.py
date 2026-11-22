@@ -481,6 +481,43 @@ def cmd_notify_test(args):  # noqa: ARG001
             print(f"  [{ch}] 失败：{st.get('error') or status.get('error') or '未知错误'}")
 
 
+def cmd_upgrade_media(args):  # noqa: ARG001
+    """把小红书归档里停在 CDN 压缩档的图片升级成真原图。
+
+    小红书详情页给的 urlDefault 是 CDN 按 1080 宽重编码过的处理档；
+    真原图在 ci.xiaohongshu.com 上，像素差 4 倍、字节差 24 倍。
+    采集时原图通道取不到会静默回退到压缩档，于是「保存下来的图不如 App 清晰」。
+    本命令从存量 remote_url 反推原图直链重下并改写 DB。
+    """
+    from .core import archive as arc
+    from .core import media_upgrade as mu
+
+    conn = arc.connect(DB)
+    try:
+        root = config.archive_root()
+        print(f"归档根目录：{root}")
+        print(f"开始回填小红书原图（{'全部档位' if args.all else '只处理压缩档'}）…")
+        stats = mu.backfill_xhs_originals(
+            conn, root,
+            limit=args.limit,
+            only_compressed=not args.all,
+        )
+    finally:
+        conn.close()
+
+    print()
+    print("=== 回填结果 ===")
+    print(f"扫描       {stats['scanned']}")
+    print(f"升级成功   {stats['upgraded']}")
+    print(f"已是原图   {stats['already_hq']}")
+    print(f"失败       {stats['failed']}")
+    print(f"推不出原图 {stats['skipped_no_candidate']}")
+    if stats["upgraded"]:
+        before = stats["bytes_before"] // 1024
+        after = stats["bytes_after"] // 1024
+        print(f"体积       {before}KB → {after}KB")
+
+
 def cmd_token(args):
     """管理访问 Token：签发 / 列出 / 吊销 / 开关鉴权。
 
@@ -584,6 +621,13 @@ def main():
 
     sp = sub.add_parser("notify-test", help="测试微信/Bark 通知是否配置成功")
     sp.set_defaults(func=cmd_notify_test)
+
+    sp = sub.add_parser("upgrade-media", help="把小红书归档升级成真原图")
+    sp.add_argument("--limit", type=int, default=0,
+                    help="最多处理多少张，0 = 不限")
+    sp.add_argument("--all", action="store_true",
+                    help="连已经是原图档的也重新拉一遍（默认只处理压缩档）")
+    sp.set_defaults(func=cmd_upgrade_media)
 
     args = p.parse_args()
     try:

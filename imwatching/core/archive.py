@@ -134,6 +134,8 @@ def sniff_ext(data: bytes) -> str:
         return ".png"
     if data[:6] in (b"GIF87a", b"GIF89a"):
         return ".gif"
+    if data[4:8] == b"ftyp":  # ISOBMFF：HEIC / HEIF / AVIF
+        return ".heic"
     return ".jpg"
 
 
