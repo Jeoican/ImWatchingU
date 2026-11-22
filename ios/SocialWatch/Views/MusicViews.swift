@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // MARK: - 歌单列表
 
@@ -353,8 +354,8 @@ struct MiniPlayerBubble: View {
                     }
                 )
                 .accessibilityLabel(accessibilityText(song))
-                .sheet(isPresented: $showFullPlayer) {
-                    FullPlayerView().environmentObject(AudioPlayer.shared)
+                .fullScreenCover(isPresented: $showFullPlayer) {
+                    FullPlayerUIKit()
                 }
                 .transition(.scale(scale: 0.6).combined(with: .opacity))
                 #if DEBUG
@@ -422,360 +423,554 @@ private struct MiniPlayerBar: View {
                     .frame(height: 2)
                 }
                 .background(Color.white)
-                .sheet(isPresented: $showFullPlayer) { FullPlayerView().environmentObject(AudioPlayer.shared) }
+                .fullScreenCover(isPresented: $showFullPlayer) { FullPlayerUIKit() }
             }
         }
     }
 }
 
-// MARK: - 全屏播放器
+// MARK: - 全屏播放器（UIKit 重写）
+//
+// 为什么放弃 SwiftUI 版：iOS 16 真机上 SwiftUI 的 .sheet 会把**整个内容视图**连同所有
+// 子视图统一右移约 17pt（真机像素实测：封面、歌名、播放键、进度条、header 全部同量偏移，
+// 而 iOS 27 模拟器完全居中）。这是呈现容器层面的坐标偏移，改任何内部 frame / alignment
+// 都无效 —— 上一轮加 frame(width:screenW) 仍偏移，就是这个原因。
+//
+// UIKit 方案：UIViewController.view.bounds 原点恒为 (0,0)、宽度恒为屏幕宽度，
+// 所有子视图用**绝对 frame**按 bounds.midX 定位，不受 sheet 呈现机制的坐标偏移影响。
+// 用 .fullScreenCover 呈现：换一套呈现机制绕开该 bug，同时消除 sheet 顶部的卡片漏边。
 
-/// 全屏播放器 —— 视觉结构参照 Beans Music 的经典皮肤，底层完全绑定本项目 AudioPlayer。
-///
-/// 为什么用「最外层 GeometryReader + ZStack 分层 + 控制区钉底」而不是整页 ScrollView：
-///   · 控制区用确定的 contentH 预留空间，永远不会被内容挤压（上一版控件消失的根因）；
-///   · SeekBar 的 GeometryReader 位于最外层 Geo 内、且不在 ScrollView 里 —— 这是关键，
-///     GeometryReader 嵌进 ScrollView 会让 SwiftUI 的 VStack 高度计算塌缩，整行控件消失；
-///   · 封面页 / 歌词页放在同一 ZStack 里做淡入切换，避免切换时布局重算。
-///
-/// 交互对齐主流播放器：点封面进整页歌词、点歌词行跳转、左右两端模式/队列、主控制居中。
-struct FullPlayerView: View {
-    @EnvironmentObject private var player: AudioPlayer
-    @Environment(\.presentationMode) private var presentationMode
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var showQueue = false
-    /// true → 整页滚动歌词；false → 大封面（点封面进入，网易云 / Beans 的经典交互）
-    #if DEBUG
-    // 自动化验证：模拟器无法注入点击，用环境变量决定初始进入歌词页
-    @State private var showingLyrics = ProcessInfo.processInfo.environment["SW_DEBUG_LYRICS"] == "1"
-    #else
-    @State private var showingLyrics = false
-    #endif
+/// SwiftUI → UIKit 桥接。接口保持简单，底层全用 AudioPlayer.shared。
+struct FullPlayerUIKit: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> FullPlayerViewController {
+        FullPlayerViewController()
+    }
+    func updateUIViewController(_ uiViewController: FullPlayerViewController, context: Context) {}
+}
 
-    /// 主题红：进度、主播放键、歌词高亮统一用色，和 App 其它页保持一致
-    private let accent = Color(red: 0.82, green: 0.28, blue: 0.22)
+@MainActor
+final class FullPlayerViewController: UIViewController {
+    private let player = AudioPlayer.shared
+    private var cancellables = Set<AnyCancellable>()
+    private var showingLyrics = false
+    private var coverURL: String?
+    private var imageLoaders: [ImageLoader] = []
+    private var lastLyricIndex = -2
 
-    /// 显式屏幕宽度：iOS 16 上 SwiftUI 的「按理想宽度自动居中」在 sheet+ScrollView 里
-    /// 会把整页内容右移约 17pt（真机实测，iOS 27 模拟器不复现）。
-    /// 所有区块统一用这个宽度 + alignment:.center 精确居中，跨版本行为一致。
-    private var screenW: CGFloat { UIScreen.main.bounds.width }
-    /// 次要文字色：浅背景上 .secondary 发虚，用带不透明度的 primary 更清晰
-    private var muted: Color { .primary.opacity(0.72) }
+    private let accent = UIColor(red: 0.82, green: 0.28, blue: 0.22, alpha: 1)
+    private let muted = UIColor.label.withAlphaComponent(0.72)
 
-    var body: some View {
-        ZStack {
-            background
+    // 背景层
+    private let bgImageView = UIImageView()
+    private let bgBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
+    private let bgTintView = UIView()
+    private let bgGradient = CAGradientLayer()
+    private let shadeGradient = CAGradientLayer()
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    headerBar
-                        .padding(.top, 4)
-                    ZStack {
-                        if showingLyrics {
-                            lyricsPage
-                        } else {
-                            coverPage
-                        }
-                    }
-                    .animation(.easeInOut(duration: 0.22), value: showingLyrics)
-                    controlDeck
-                        .padding(.top, 8)
-                }
-                // 显式宽度，不让 ScrollView 的宽松宽度提案参与居中计算
-                .frame(width: screenW)
-            }
-            .frame(width: screenW)
-        }
-        .ignoresSafeArea(edges: .bottom)
-        // sheet 挂最外层：挂子视图上会让该子视图的按钮不渲染（踩过）
-        .sheet(isPresented: $showQueue) {
-            PlayQueueSheet().environmentObject(player)
-        }
+    // 顶部栏
+    private let headerView = UIView()
+    private let closeButton = UIButton(type: .system)
+    private let statusLabel = UILabel()
+    private let titleLabel = UILabel()
+    private let headerQueueButton = UIButton(type: .system)
+
+    // 封面页
+    private let coverPage = UIView()
+    private let coverShadowView = UIView()
+    private let coverImageView = UIImageView()
+    private let songLabel = UILabel()
+    private let artistLabel = UILabel()
+    private let previewLabel = UILabel()
+
+    // 歌词页
+    private let lyricsPage = UIView()
+    private let collapseButton = UIButton(type: .system)
+    private let lyricsScrollView = UIScrollView()
+    private let lyricsStack = UIStackView()
+    private var lyricLabels: [UILabel] = []
+    private var lyricSongID: String?
+
+    // 控制区
+    private let deckView = UIView()
+    private let seekBar = UIView()
+    private let seekTrack = UIView()
+    private let seekFill = UIView()
+    private let seekThumb = UIView()
+    private let currentTimeLabel = UILabel()
+    private let durationLabel = UILabel()
+    private let prevButton = UIButton(type: .system)
+    private let playButton = UIButton(type: .system)
+    private let nextButton = UIButton(type: .system)
+    private let modeButton = UIButton(type: .custom)
+    private let modeIcon = UIImageView()
+    private let modeLabel = UILabel()
+    private let deckQueueButton = UIButton(type: .custom)
+    private let queueIcon = UIImageView()
+    private let queueLabel = UILabel()
+    private let errorLabel = UILabel()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        modalPresentationCapturesStatusBarAppearance = true
         #if DEBUG
-        .background(GeometryReader { g in
-            Color.clear.onAppear {
-                NSLog("[SW] fullPlayer screen=%@ frame=%@",
-                      NSCoder.string(for: UIScreen.main.bounds),
-                      NSCoder.string(for: g.frame(in: .global)))
-            }
-        })
+        if ProcessInfo.processInfo.environment["SW_DEBUG_LYRICS"] == "1" { showingLyrics = true }
         #endif
+        buildUI()
+        bind()
+        refreshAll()
     }
 
-    // MARK: 背景 —— 封面毛玻璃 + 主题渐变 + 可读性遮罩（Beans 的多层背景思路）
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 
-    private var background: some View {
-        ZStack {
-            Color(uiColor: .systemBackground)
-            if let cover = player.currentSong?.cover, !cover.isEmpty {
-                ProxyImage(url: cover, placeholderText: "")
-                    .scaleEffect(1.5)
-                    .blur(radius: 36)
-                    // 提高不透明度：底色不再被冲淡成灰白，专辑主色真正透出来
-                    .opacity(colorScheme == .dark ? 0.55 : 0.48)
-                    .saturation(1.5)
-            }
-            // 主题色上下渐变，把整页色调拉到专辑氛围（加深）
-            LinearGradient(
-                colors: [accent.opacity(colorScheme == .dark ? 0.38 : 0.30),
-                         accent.opacity(colorScheme == .dark ? 0.12 : 0.06),
-                         accent.opacity(colorScheme == .dark ? 0.34 : 0.26)],
-                startPoint: .top, endPoint: .bottom
-            )
-            // 遮罩：浅色压白、深色压黑，保证文字/按钮可读（弱化，避免洗掉取色）
-            LinearGradient(
-                colors: colorScheme == .dark
-                    ? [Color.black.opacity(0.06), Color.black.opacity(0.34)]
-                    : [Color.white.opacity(0.04), Color.white.opacity(0.20)],
-                startPoint: .top, endPoint: .bottom
-            )
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        layout()
+    }
+
+    // MARK: 构建视图层级
+
+    private func buildUI() {
+        // 背景：封面 → 高斯模糊 → 主题色渐变 → 可读性遮罩
+        bgImageView.contentMode = .scaleAspectFill
+        bgImageView.clipsToBounds = true
+        view.addSubview(bgImageView)
+        view.addSubview(bgBlurView)
+        // 暗色遮罩：压住封面取色的亮度，避免橙色瞳孔放大成刺眼光斑
+        bgTintView.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        view.addSubview(bgTintView)
+        bgGradient.colors = [accent.withAlphaComponent(0.20).cgColor,
+                             UIColor.clear.cgColor,
+                             accent.withAlphaComponent(0.16).cgColor]
+        bgGradient.locations = [0, 0.5, 1]
+        view.layer.insertSublayer(bgGradient, at: 0)
+        shadeGradient.colors = [UIColor.black.withAlphaComponent(0.06).cgColor,
+                                UIColor.black.withAlphaComponent(0.34).cgColor]
+        shadeGradient.locations = [0, 1]
+        view.layer.insertSublayer(shadeGradient, above: bgGradient)
+
+        // 顶部栏
+        setupCloseButton(closeButton)
+        closeButton.setImage(UIImage(systemName: "chevron.down"), for: .normal)
+        closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        headerView.addSubview(closeButton)
+
+        statusLabel.font = .systemFont(ofSize: 10, weight: .medium)
+        statusLabel.textColor = muted
+        statusLabel.textAlignment = .center
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textAlignment = .center
+        titleLabel.lineBreakMode = .byTruncatingMiddle
+        headerView.addSubview(statusLabel)
+        headerView.addSubview(titleLabel)
+
+        setupCloseButton(headerQueueButton)
+        headerQueueButton.setImage(UIImage(systemName: "list.bullet"), for: .normal)
+        headerQueueButton.addTarget(self, action: #selector(queueTapped), for: .touchUpInside)
+        headerView.addSubview(headerQueueButton)
+        view.addSubview(headerView)
+
+        // 封面页
+        coverPage.addSubview(coverShadowView)
+        coverShadowView.layer.shadowColor = UIColor.black.cgColor
+        coverShadowView.layer.shadowOpacity = 0.3
+        coverShadowView.layer.shadowRadius = 20
+        coverShadowView.layer.shadowOffset = CGSize(width: 0, height: 10)
+        coverShadowView.addSubview(coverImageView)
+        coverImageView.contentMode = .scaleAspectFill
+        coverImageView.clipsToBounds = true
+        coverImageView.layer.cornerRadius = 16
+        coverImageView.isUserInteractionEnabled = true
+        coverImageView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(coverTapped)))
+        coverPage.addSubview(songLabel)
+        songLabel.font = .systemFont(ofSize: 20, weight: .semibold)
+        songLabel.textAlignment = .center
+        coverPage.addSubview(artistLabel)
+        artistLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        artistLabel.textColor = muted
+        artistLabel.textAlignment = .center
+        coverPage.addSubview(previewLabel)
+        previewLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        previewLabel.textColor = muted
+        previewLabel.textAlignment = .center
+        previewLabel.numberOfLines = 1
+        view.addSubview(coverPage)
+
+        // 歌词页
+        collapseButton.setTitle("收起歌词", for: .normal)
+        collapseButton.titleLabel?.font = .systemFont(ofSize: 12, weight: .medium)
+        collapseButton.setImage(UIImage(systemName: "chevron.up"), for: .normal)
+        collapseButton.tintColor = muted
+        collapseButton.setTitleColor(muted, for: .normal)
+        collapseButton.addTarget(self, action: #selector(collapseTapped), for: .touchUpInside)
+        lyricsPage.addSubview(collapseButton)
+        lyricsScrollView.showsVerticalScrollIndicator = false
+        lyricsStack.axis = .vertical
+        lyricsStack.alignment = .fill
+        lyricsStack.spacing = 20
+        lyricsScrollView.addSubview(lyricsStack)
+        lyricsPage.addSubview(lyricsScrollView)
+        view.addSubview(lyricsPage)
+
+        // 控制区：自绘进度条
+        seekTrack.backgroundColor = UIColor.label.withAlphaComponent(0.28)
+        seekTrack.layer.cornerRadius = 2.5
+        seekFill.backgroundColor = accent
+        seekFill.layer.cornerRadius = 2.5
+        seekThumb.backgroundColor = accent
+        seekThumb.layer.cornerRadius = 6.5
+        seekBar.addSubview(seekTrack)
+        seekBar.addSubview(seekFill)
+        seekBar.addSubview(seekThumb)
+        seekBar.isUserInteractionEnabled = true
+        seekBar.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(seekPanned(_:))))
+        currentTimeLabel.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        currentTimeLabel.textColor = muted
+        durationLabel.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        durationLabel.textColor = muted
+        durationLabel.textAlignment = .right
+        seekBar.addSubview(currentTimeLabel)
+        seekBar.addSubview(durationLabel)
+        deckView.addSubview(seekBar)
+
+        // 主控制
+        prevButton.setImage(UIImage(systemName: "backward"), for: .normal)
+        prevButton.tintColor = .label
+        prevButton.addTarget(self, action: #selector(prevTapped), for: .touchUpInside)
+        playButton.setImage(UIImage(systemName: "play.fill"), for: .normal)
+        playButton.tintColor = .white
+        playButton.backgroundColor = accent
+        playButton.layer.cornerRadius = 33
+        playButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
+        nextButton.setImage(UIImage(systemName: "forward"), for: .normal)
+        nextButton.tintColor = .label
+        nextButton.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
+        [prevButton, playButton, nextButton].forEach { deckView.addSubview($0) }
+
+        // 模式 / 队列：用 custom Button + 独立 imageView/label，图在上字在下，
+        // 避开 UIButton.Configuration 在窄宽度下把中文标题挤成竖排的问题。
+        setupDeckAction(modeButton, icon: modeIcon, label: modeLabel,
+                        symbol: "arrow.right", text: "顺序播放")
+        modeButton.addTarget(self, action: #selector(modeTapped), for: .touchUpInside)
+        setupDeckAction(deckQueueButton, icon: queueIcon, label: queueLabel,
+                        symbol: "list.bullet", text: "队列")
+        deckQueueButton.addTarget(self, action: #selector(queueTapped), for: .touchUpInside)
+
+        errorLabel.font = .systemFont(ofSize: 11)
+        errorLabel.textColor = .systemRed
+        errorLabel.textAlignment = .center
+        errorLabel.numberOfLines = 2
+        deckView.addSubview(errorLabel)
+        view.addSubview(deckView)
+
+        updatePageVisibility()
+    }
+
+    private func setupCloseButton(_ b: UIButton) {
+        b.tintColor = .label
+        b.backgroundColor = UIColor.label.withAlphaComponent(0.06)
+        b.layer.cornerRadius = 20
+    }
+
+    private func setupDeckAction(_ b: UIButton, icon: UIImageView, label: UILabel,
+                                 symbol: String, text: String) {
+        icon.image = UIImage(systemName: symbol)
+        icon.contentMode = .scaleAspectFit
+        icon.tintColor = muted
+        label.text = text
+        label.font = .systemFont(ofSize: 10, weight: .medium)
+        label.textColor = muted
+        label.textAlignment = .center
+        b.addSubview(icon)
+        b.addSubview(label)
+        deckView.addSubview(b)
+    }
+
+    // MARK: 布局（全部绝对 frame，基于 bounds 中心 —— 不受呈现容器偏移影响）
+
+    private func layout() {
+        let W = view.bounds.width
+        let H = view.bounds.height
+        let safeTop = view.safeAreaInsets.top
+        let safeBottom = view.safeAreaInsets.bottom
+
+        bgImageView.frame = view.bounds
+        bgBlurView.frame = view.bounds
+        bgTintView.frame = view.bounds
+        bgGradient.frame = view.bounds
+        shadeGradient.frame = view.bounds
+
+        // 顶部栏：三栏绝对居中
+        let headerH: CGFloat = 48
+        headerView.frame = CGRect(x: 0, y: safeTop, width: W, height: headerH)
+        closeButton.frame = CGRect(x: 16, y: 4, width: 40, height: 40)
+        headerQueueButton.frame = CGRect(x: W - 56, y: 4, width: 40, height: 40)
+        let titleW = W - 128
+        statusLabel.frame = CGRect(x: (W - titleW) / 2, y: 5, width: titleW, height: 15)
+        titleLabel.frame = CGRect(x: (W - titleW) / 2, y: 21, width: titleW, height: 20)
+
+        let deckH: CGFloat = 214
+        let deckY = H - safeBottom - deckH
+        let pageTop = safeTop + headerH
+        let pageH = max(160, deckY - pageTop - 6)
+
+        // 封面页
+        coverPage.frame = CGRect(x: 0, y: pageTop, width: W, height: pageH)
+        let side = min(258, W - 120)
+        coverShadowView.frame = CGRect(x: (W - side) / 2, y: 20, width: side, height: side)
+        coverImageView.frame = coverShadowView.bounds
+        songLabel.frame = CGRect(x: 24, y: 20 + side + 18, width: W - 48, height: 28)
+        artistLabel.frame = CGRect(x: 24, y: songLabel.frame.maxY + 2, width: W - 48, height: 20)
+        previewLabel.frame = CGRect(x: 24, y: artistLabel.frame.maxY + 12, width: W - 48, height: 20)
+
+        // 歌词页
+        lyricsPage.frame = coverPage.frame
+        collapseButton.frame = CGRect(x: W / 2 - 70, y: 4, width: 140, height: 30)
+        lyricsScrollView.frame = CGRect(x: 20, y: 38, width: W - 40, height: pageH - 46)
+        layoutLyricsStack()
+
+        // 控制区
+        deckView.frame = CGRect(x: 0, y: deckY, width: W, height: deckH)
+        let trackW = W - 48
+        seekBar.frame = CGRect(x: 24, y: 8, width: trackW, height: 42)
+        seekTrack.frame = CGRect(x: 0, y: 6, width: trackW, height: 5)
+        currentTimeLabel.frame = CGRect(x: 0, y: 20, width: 70, height: 16)
+        durationLabel.frame = CGRect(x: trackW - 70, y: 20, width: 70, height: 16)
+        updateProgress()
+
+        let cy: CGFloat = 78
+        playButton.frame = CGRect(x: W / 2 - 33, y: cy, width: 66, height: 66)
+        prevButton.frame = CGRect(x: W / 2 - 33 - 24 - 50, y: cy + 8, width: 50, height: 50)
+        nextButton.frame = CGRect(x: W / 2 + 33 + 24, y: cy + 8, width: 50, height: 50)
+
+        let actionW: CGFloat = 76
+        modeButton.frame = CGRect(x: W / 2 - 116, y: 150, width: actionW, height: 50)
+        deckQueueButton.frame = CGRect(x: W / 2 + 40, y: 150, width: actionW, height: 50)
+        for (btn, icon, label) in [(modeButton, modeIcon, modeLabel),
+                                   (deckQueueButton, queueIcon, queueLabel)] {
+            icon.frame = CGRect(x: (actionW - 22) / 2, y: 2, width: 22, height: 22)
+            label.frame = CGRect(x: 0, y: 27, width: actionW, height: 16)
+            _ = btn
         }
-        .ignoresSafeArea()
+        errorLabel.frame = CGRect(x: 24, y: 194, width: W - 48, height: 18)
     }
 
-    // MARK: 顶部栏
-
-    private var headerBar: some View {
-        // 固定三栏：左 52 + 中 (屏宽-104) + 右 52，显式宽度保证中间标题真正居中，
-        // 两端按钮贴边对称（不用 Spacer —— ScrollView 宽松提案下会推按钮出屏）。
-        HStack(spacing: 0) {
-            Button { presentationMode.wrappedValue.dismiss() } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 17, weight: .semibold))
-            }
-            .frame(width: 52, height: 44)
-
-            VStack(spacing: 2) {
-                Text(player.isLoading ? "加载中…" : (player.isPlaying ? "正在播放" : "已暂停"))
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(muted)
-                Text(player.playlistTitle.isEmpty ? "正在播放" : player.playlistTitle)
-                    .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .frame(width: screenW - 104)
-
-            Button { showQueue = true } label: {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 17, weight: .semibold))
-            }
-            .frame(width: 52, height: 44)
-            .accessibilityLabel("播放队列")
-        }
-        .frame(width: screenW, height: 44, alignment: .center)
-        .foregroundColor(.primary)
+    private func layoutLyricsStack() {
+        let w = lyricsScrollView.bounds.width
+        guard w > 0 else { return }
+        let size = lyricsStack.systemLayoutSizeFitting(
+            CGSize(width: w, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel)
+        lyricsStack.frame = CGRect(x: 0, y: 80, width: w, height: size.height)
+        lyricsScrollView.contentSize = CGSize(width: w, height: lyricsStack.frame.maxY + 40)
     }
 
-    // MARK: 封面页（点击进歌词）
+    // MARK: 订阅 AudioPlayer
 
-    private var coverPage: some View {
-        // 封面从 300 缩到 258：真机上原尺寸占屏宽 77% 偏大、重心过高，
-        // 缩小后上下留白更均衡，给下方控制区留出呼吸空间。
-        let side: CGFloat = min(258, screenW - 120)
-        return VStack(spacing: 14) {
-            Button { withAnimation(.easeInOut(duration: 0.22)) { showingLyrics = true } } label: {
-                ZStack {
-                    // 封面背后的柔光，令大封面从背景里"浮"出来
-                    Circle()
-                        .fill(accent.opacity(colorScheme == .dark ? 0.34 : 0.26))
-                        .frame(width: side * 1.12, height: side * 1.12)
-                        .blur(radius: 26)
-                    if let song = player.currentSong {
-                        AlbumArt(url: song.cover, size: side, corner: 18)
-                            .shadow(color: .black.opacity(0.30), radius: 20, x: 0, y: 10)
-                    } else {
-                        AlbumArt(url: nil, size: side, corner: 18)
-                    }
-                }
+    private func bind() {
+        player.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in self?.refreshAll() }
             }
-            .buttonStyle(.plain)
-
-            VStack(spacing: 5) {
-                Text(player.currentSong?.displayName ?? "未在播放")
-                    .font(.system(size: 20, weight: .semibold))
-                    .lineLimit(1)
-                    .multilineTextAlignment(.center)
-                Text(player.currentSong?.artists ?? "未知歌手")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(muted)
-                    .lineLimit(1)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(.horizontal, 32)
-
-            // 歌词预览一行：唱到哪句一眼可见，也暗示"点封面能看全词"
-            if !player.lyrics.isEmpty,
-               player.currentLyricIndex >= 0,
-               player.currentLyricIndex < player.lyrics.count {
-                Text(player.lyrics[player.currentLyricIndex].text)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(muted)
-                    .lineLimit(1)
-                    .padding(.horizontal, 40)
-            }
-        }
-        .frame(width: screenW, height: 400, alignment: .center)
+            .store(in: &cancellables)
     }
 
-    // MARK: 歌词页
+    private func refreshAll() {
+        let song = player.currentSong
+        statusLabel.text = player.isLoading ? "加载中…" : (player.isPlaying ? "正在播放" : "已暂停")
+        titleLabel.text = player.playlistTitle.isEmpty ? "正在播放" : player.playlistTitle
+        songLabel.text = song?.displayName ?? "未在播放"
+        artistLabel.text = song?.artists ?? "未知歌手"
+        previewLabel.text = currentLyricText()
 
-    private var lyricsPage: some View {
-        VStack(spacing: 0) {
-            // 返回封面的入口：居中按钮。
-            // 不用 Spacer 撑开（ScrollView 宽松提案下会把两端内容推出屏幕）。
-            Button { withAnimation(.easeInOut(duration: 0.22)) { showingLyrics = false } } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("收起歌词")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .foregroundColor(muted)
-            }
-            .buttonStyle(.plain)
-            .frame(width: screenW, height: 28, alignment: .center)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+        let imgName = player.isPlaying ? "pause.fill" : "play.fill"
+        playButton.setImage(UIImage(systemName: imgName), for: .normal)
 
-            LyricsView(player: player)
-                .frame(width: screenW - 48, height: 372)
-        }
-        .frame(width: screenW, alignment: .center)
+        let mode = player.playMode
+        let modeColor = mode == .sequential ? muted : accent
+        modeIcon.image = UIImage(systemName: mode.icon)
+        modeIcon.tintColor = modeColor
+        modeLabel.text = mode.title
+        modeLabel.textColor = modeColor
+
+        errorLabel.text = player.errorMessage
+        errorLabel.isHidden = player.errorMessage == nil
+
+        loadCover(song?.cover)
+        rebuildLyricsIfNeeded()
+        updateLyricsHighlight()
+        updateProgress()
     }
 
-    // MARK: 底部控制区
-
-    private var controlDeck: some View {
-        VStack(spacing: 0) {
-            seekBar
-                .padding(.top, 4)
-
-            mainControls
-                .padding(.top, 4)
-
-            // 次要操作行：模式 + 队列，各自带文字。显式宽度居中。
-            HStack(spacing: 56) {
-                modeButton
-                queueButton
-            }
-            .frame(width: screenW, height: 54, alignment: .center)
-            .padding(.top, 6)
-
-            if let msg = player.errorMessage {
-                Text(msg)
-                    .font(.system(size: 11))
-                    .foregroundColor(.red)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 2)
-            }
-        }
-        .frame(width: screenW, alignment: .center)
+    private func currentLyricText() -> String {
+        let i = player.currentLyricIndex
+        guard i >= 0, i < player.lyrics.count else { return "" }
+        return player.lyrics[i].text
     }
 
-    /// 自绘进度条（不用系统 Slider）：轨道 + 主题色填充 + 圆点 + 拖拽 seek。
-    /// 关键：不用 GeometryReader —— 它在 ScrollView 里会让整行塌缩为 0 而消失（踩过）。
-    /// 用固定内容宽度按比例绘制，各机型差异可接受。
-    private var seekBar: some View {
-        let trackW: CGFloat = screenW - 48
+    private func updateProgress() {
+        let w = seekBar.bounds.width
+        guard w > 0 else { return }
         let p = CGFloat(min(max(player.progress, 0), 1))
-        return VStack(spacing: 6) {
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.28)).frame(width: trackW, height: 5)
-                Capsule().fill(accent).frame(width: max(0, trackW * p), height: 5)
-                Circle().fill(accent)
-                    .frame(width: 13, height: 13)
-                    .offset(x: trackW * p - 6.5)
-            }
-            .frame(width: trackW, height: 16)
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { v in
-                    guard player.duration > 0 else { return }
-                    player.progress = Double(min(max(v.location.x / trackW, 0), 1))
-                })
-            HStack {
-                Text(formatTime(player.currentTime))
-                Spacer(minLength: 0)
-                Text(formatTime(player.duration))
-            }
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .foregroundColor(muted)
-            .frame(width: trackW)
-        }
-        .frame(width: screenW, height: 44, alignment: .center)
+        seekFill.frame = CGRect(x: 0, y: seekTrack.frame.minY, width: w * p, height: seekTrack.bounds.height)
+        seekThumb.frame = CGRect(x: w * p - 6.5, y: seekTrack.frame.minY - 5.5, width: 13, height: 13)
+        currentTimeLabel.text = fmtTime(player.currentTime)
+        durationLabel.text = fmtTime(player.duration)
     }
 
-    private var mainControls: some View {
-        HStack(spacing: 34) {
-            Button { player.previous() } label: {
-                Image(systemName: "backward")
-                    .font(.system(size: 26, weight: .semibold))
-                    .frame(width: 50, height: 50)
-            }
-            Button { player.togglePlayPause() } label: {
-                ZStack {
-                    Circle().fill(accent).frame(width: 66, height: 66)
-                    if player.isLoading {
-                        ProgressView().tint(.white)
-                    } else {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                            .font(.system(size: 26, weight: .semibold))
-                            .foregroundColor(.white)
-                            .offset(x: player.isPlaying ? 0 : 2)
-                    }
-                }
-                .shadow(color: accent.opacity(0.40), radius: 14, x: 0, y: 6)
-            }
-            .buttonStyle(.plain)
-            Button { player.next() } label: {
-                Image(systemName: "forward")
-                    .font(.system(size: 26, weight: .semibold))
-                    .frame(width: 50, height: 50)
-            }
-        }
-        // 显式宽度居中，主播放键落在屏幕正中
-        .frame(width: screenW, height: 66, alignment: .center)
-        .foregroundColor(.primary)
-    }
-
-    /// 播放模式：顺序 / 随机 / 单曲循环，点一下循环切换
-    private var modeButton: some View {
-        Button { player.cyclePlayMode() } label: {
-            VStack(spacing: 3) {
-                Image(systemName: player.playMode.icon)
-                    .font(.system(size: 17, weight: .medium))
-                Text(player.playMode.title)
-                    .font(.system(size: 10, weight: .medium))
-            }
-            .foregroundColor(player.playMode == .sequential ? muted : accent)
-            .frame(width: 54, height: 54)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(player.playMode.title)
-    }
-
-    private var queueButton: some View {
-        Button { showQueue = true } label: {
-            VStack(spacing: 3) {
-                Image(systemName: "list.bullet")
-                    .font(.system(size: 17, weight: .medium))
-                Text("队列")
-                    .font(.system(size: 10, weight: .medium))
-            }
-            .foregroundColor(muted)
-            .frame(width: 54, height: 54)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("播放队列")
-    }
-
-    private func formatTime(_ t: Double) -> String {
+    private func fmtTime(_ t: Double) -> String {
         guard t.isFinite, t >= 0 else { return "0:00" }
-        let total = Int(t)
-        return String(format: "%d:%02d", total / 60, total % 60)
+        let s = Int(t)
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
+    // MARK: 封面
+
+    private func loadCover(_ url: String?) {
+        guard let url, !url.isEmpty else {
+            coverImageView.image = nil
+            bgImageView.image = nil
+            bgBlurView.isHidden = false
+            return
+        }
+        if coverURL == url { return }
+        coverURL = url
+        if let cached = ImageLoader.sharedCachedImage(for: url) {
+            applyCover(cached)
+            return
+        }
+        bgBlurView.isHidden = false
+        let loader = ImageLoader()
+        loader.onImage = { [weak self] img in
+            Task { @MainActor [weak self] in self?.applyCover(img) }
+        }
+        imageLoaders.append(loader)
+        loader.load(remoteURL: url)
+        // 只保留最近几个 loader，防止无限增长
+        if imageLoaders.count > 4 { imageLoaders.removeFirst() }
+    }
+
+    private func applyCover(_ img: UIImage) {
+        coverImageView.image = img
+        // 背景：放大 + 提饱和 + 高斯模糊，一次成像（比 UIVisualEffectView 取色更浓）
+        if let bg = makeBackground(from: img) {
+            bgImageView.image = bg
+            bgBlurView.isHidden = true
+        } else {
+            bgImageView.image = img
+        }
+    }
+
+    private func makeBackground(from image: UIImage) -> UIImage? {
+        guard let ci = CIImage(image: image) else { return nil }
+        // 缩小放大倍数、降低饱和度、加大模糊半径：暖调氛围而不刺眼
+        let scale: CGFloat = 1.2
+        let scaled = ci.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let sat = CIFilter(name: "CIColorControls")
+        sat?.setValue(scaled, forKey: kCIInputImageKey)
+        sat?.setValue(1.15, forKey: kCIInputSaturationKey)
+        sat?.setValue(0.92, forKey: kCIInputBrightnessKey)
+        let blur = CIFilter(name: "CIGaussianBlur")
+        blur?.setValue(sat?.outputImage ?? scaled, forKey: kCIInputImageKey)
+        blur?.setValue(40, forKey: kCIInputRadiusKey)
+        guard let out = blur?.outputImage else { return nil }
+        let ctx = CIContext()
+        guard let cg = ctx.createCGImage(out, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
+    // MARK: 歌词
+
+    private func rebuildLyricsIfNeeded() {
+        let sid = player.currentSong?.id ?? ""
+        guard lyricSongID != sid || lyricLabels.count != player.lyrics.count else { return }
+        lyricSongID = sid
+        lyricLabels.removeAll()
+        lyricsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for (i, line) in player.lyrics.enumerated() {
+            let lb = UILabel()
+            lb.text = line.text
+            lb.font = .systemFont(ofSize: 17, weight: .medium)
+            lb.textColor = muted
+            lb.textAlignment = .center
+            lb.numberOfLines = 0
+            lb.tag = i
+            lb.isUserInteractionEnabled = true
+            lb.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(lyricTapped(_:))))
+            lyricsStack.addArrangedSubview(lb)
+            lyricLabels.append(lb)
+        }
+        layoutLyricsStack()
+        lastLyricIndex = -2
+    }
+
+    private func updateLyricsHighlight() {
+        let idx = player.currentLyricIndex
+        for (i, lb) in lyricLabels.enumerated() {
+            let active = i == idx
+            lb.textColor = active ? accent : muted
+            lb.font = .systemFont(ofSize: active ? 19 : 17, weight: active ? .semibold : .medium)
+        }
+        guard idx >= 0, idx < lyricLabels.count, idx != lastLyricIndex else { return }
+        lastLyricIndex = idx
+        let lb = lyricLabels[idx]
+        let targetY = lyricsStack.frame.origin.y + lb.frame.minY - lyricsScrollView.bounds.height / 2 + lb.frame.height / 2
+        let maxY = max(0, lyricsScrollView.contentSize.height - lyricsScrollView.bounds.height)
+        lyricsScrollView.setContentOffset(CGPoint(x: 0, y: min(max(targetY, 0), maxY)), animated: true)
+    }
+
+    private func updatePageVisibility() {
+        coverPage.isHidden = showingLyrics
+        lyricsPage.isHidden = !showingLyrics
+    }
+
+    // MARK: 交互
+
+    @objc private func closeTapped() { dismiss(animated: true) }
+
+    @objc private func coverTapped() {
+        switchPage(to: true)
+    }
+
+    @objc private func collapseTapped() {
+        switchPage(to: false)
+    }
+
+    private func switchPage(to lyrics: Bool) {
+        let from = lyrics ? coverPage : lyricsPage
+        let to = lyrics ? lyricsPage : coverPage
+        UIView.transition(from: from, to: to, duration: 0.22,
+                          options: [.transitionCrossDissolve, .showHideTransitionViews],
+                          completion: nil)
+        showingLyrics = lyrics
+        updatePageVisibility()
+    }
+
+    @objc private func playTapped() { player.togglePlayPause() }
+    @objc private func prevTapped() { player.previous() }
+    @objc private func nextTapped() { player.next() }
+    @objc private func modeTapped() { player.cyclePlayMode() }
+
+    @objc private func queueTapped() {
+        let host = UIHostingController(rootView: PlayQueueSheet().environmentObject(player))
+        host.modalPresentationStyle = .pageSheet
+        present(host, animated: true)
+    }
+
+    @objc private func seekPanned(_ g: UIPanGestureRecognizer) {
+        let w = seekBar.bounds.width
+        guard w > 0, player.duration > 0 else { return }
+        let x = g.location(in: seekBar).x
+        player.progress = Double(min(max(x / w, 0), 1))
+    }
+
+    @objc private func lyricTapped(_ g: UITapGestureRecognizer) {
+        guard let lb = g.view as? UILabel else { return }
+        let i = lb.tag
+        guard i >= 0, i < player.lyrics.count else { return }
+        player.seek(to: player.lyrics[i].t)
     }
 }
 
