@@ -10,6 +10,43 @@ import SwiftUI
 ///
 /// 播放地址的生命周期：网易云给的是带时效签名的临时 URL，这里**不缓存**，
 /// 每次真正要播某首歌时才向后端换取，拿到立刻交给 AVPlayer。
+/// 播放模式。
+///
+/// 三种是所有音乐 App 的标配，用户明确要求：
+/// 顺序播放 / 随机播放 / 单曲循环。
+enum PlayMode: String, CaseIterable, Identifiable {
+    case sequential   // 顺序
+    case shuffle      // 随机
+    case repeatOne    // 单曲循环
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .sequential: return "arrow.right"
+        case .shuffle:    return "shuffle"
+        case .repeatOne:  return "repeat"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .sequential: return "顺序播放"
+        case .shuffle:    return "随机播放"
+        case .repeatOne:  return "单曲循环"
+        }
+    }
+
+    /// 下一个模式（点一下循环切换）
+    var next: PlayMode {
+        switch self {
+        case .sequential: return .shuffle
+        case .shuffle:    return .repeatOne
+        case .repeatOne:  return .sequential
+        }
+    }
+}
+
 @MainActor
 final class AudioPlayer: ObservableObject {
     static let shared = AudioPlayer()
@@ -24,6 +61,12 @@ final class AudioPlayer: ObservableObject {
     @Published var errorMessage: String?
     /// 当前所在歌单名，迷你条与全屏页标题用
     @Published var playlistTitle: String = ""
+    /// 播放模式：顺序 / 随机 / 单曲循环
+    @Published var playMode: PlayMode = .sequential {
+        didSet { UserDefaults.standard.set(playMode.rawValue, forKey: Self.modeKey) }
+    }
+    /// 随机播放用：已经放过的歌，避免连着两首重复（真正的"洗牌"而非"乱跳"）
+    private var shuffleHistory: Set<Int> = []
 
     // MARK: 歌词
 
@@ -65,9 +108,16 @@ final class AudioPlayer: ObservableObject {
     private var artworkToken = 0
 
     private init() {
+        // 恢复上次的播放模式。用户听歌习惯不该每次开 App 都重置。
+        if let raw = UserDefaults.standard.string(forKey: Self.modeKey),
+           let saved = PlayMode(rawValue: raw) {
+            playMode = saved
+        }
         configureRemoteCommands()
         observeInterruptions()
     }
+
+    private static let modeKey = "music.playMode"
 
     // MARK: - 播放控制
 
@@ -224,11 +274,54 @@ final class AudioPlayer: ObservableObject {
     }
 
     func next() {
+        // 单曲循环：播完又播同一首
+        if playMode == .repeatOne, currentIndex >= 0, currentIndex < queue.count {
+            play(at: currentIndex)
+            return
+        }
+        // 随机：挑一首没放过的
+        if playMode == .shuffle {
+            if let idx = nextShuffleIndex() {
+                play(at: idx)
+                return
+            }
+            // 全放过了 → 从头再来一轮
+            shuffleHistory.removeAll()
+            if let idx = nextShuffleIndex() {
+                play(at: idx)
+                return
+            }
+        }
+        // 顺序：下一首；到末尾就停
         guard currentIndex + 1 < queue.count else {
             player?.pause(); isPlaying = false
             return
         }
         play(at: currentIndex + 1)
+    }
+
+    /// 随机模式：选一首「这一轮还没放过」的。
+    ///
+    /// 为什么不用纯随机数：那样会连着放同一首，听感很糟。
+    /// 这里维护一个「已放过」集合，一轮内不重复；一轮放完再重开一轮。
+    private func nextShuffleIndex() -> Int? {
+        guard !queue.isEmpty else { return nil }
+        let candidates = queue.indices.filter { !shuffleHistory.contains($0) }
+        guard !candidates.isEmpty else { return nil }
+        // 排除当前这首（歌只有一首时除外，否则会原地不动）
+        let pool = candidates.contains(currentIndex) && candidates.count > 1
+            ? candidates.filter { $0 != currentIndex }
+            : candidates
+        guard let pick = pool.randomElement() else { return nil }
+        shuffleHistory.insert(pick)
+        return pick
+    }
+
+    /// 切换到下一个播放模式（点按钮循环切换）。
+    func cyclePlayMode() {
+        playMode = playMode.next
+        // 切到随机时清掉上一轮的历史，让新模式立刻干净地开始
+        if playMode == .shuffle { shuffleHistory.removeAll() }
     }
 
     func previous() {
@@ -241,6 +334,8 @@ final class AudioPlayer: ObservableObject {
             seek(to: 0)
             return
         }
+        // 随机模式下没有"上一首"的概念：退回到顺序里的上一首反而更符合直觉，
+        // 因为用户看到的是列表顺序。
         play(at: currentIndex - 1)
     }
 

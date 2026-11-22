@@ -331,6 +331,19 @@ struct MiniPlayerBubble: View {
                     }
                     .frame(width: diameter, height: diameter)
                     .shadow(color: .black.opacity(0.22), radius: 10, x: 0, y: 4)
+                    // ④ 播放模式角标：不是顺序播放时，在右下角标一个小图标。
+                    // 迷你态也要能看出「在随机」或「单曲循环」，否则用户进全屏前
+                    // 根本不知道下一首是怎么来的。
+                    .overlay(alignment: .bottomTrailing) {
+                        if player.playMode != .sequential {
+                            Image(systemName: player.playMode.icon)
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(width: 15, height: 15)
+                                .background(Circle().fill(Color(red: 0.82, green: 0.28, blue: 0.22)))
+                                .offset(x: 2, y: 2)
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
                 // 长按快捷暂停/播放，不必进全屏
@@ -433,22 +446,60 @@ private struct MiniPlayerBar: View {
 struct FullPlayerView: View {
     @EnvironmentObject private var player: AudioPlayer
     @Environment(\.presentationMode) private var presentationMode
+    /// 是否展开播放队列
+    @State private var showQueue = false
 
     var body: some View {
         ZStack {
             background
-            VStack(spacing: 0) {
-                header
-                cover
-                lyricsArea
-                controls
+            // 用 Vertical ScrollView 承载，所有子块按「自然高度」自上而下排布。
+            //
+            // 教训：不要用 VStack + Spacer + .frame(maxHeight:.infinity) 去
+            // 「自适应分配」高度。实测 SwiftUI 会把中间几块（进度条、控制区）
+            // 压到远小于内容所需，Slider / 模式按钮 / 时间文字被挤出可见区 ——
+            // 底色在、控件整块消失，且 .frame(height:) / .fixedSize 都救不回来。
+            // ScrollView 不做这种压缩，子视图各按自身尺寸渲染，最稳。
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    header
+                        .padding(.horizontal, 8)
+                        .padding(.top, 6)
+                    cover
+                        .padding(.horizontal, 56)
+                        .padding(.top, 18)
+                    songInfo
+                        .padding(.top, 16)
+                    progressBar
+                        .padding(.top, 10)
+                    controls
+                        .padding(.top, 6)
+                    lyricsArea
+                        .frame(height: 300)
+                        .padding(.top, 24)
+                }
             }
+            .frame(maxWidth: .infinity)
         }
         .ignoresSafeArea(edges: .bottom)
+        // sheet 必须挂在**最外层**视图上。挂在 header 这种子视图上时，
+        // SwiftUI 会把它当作该子视图的呈现控制器，实测会让 header 里的
+        // 按钮整个不渲染（队列按钮凭空消失）。
+        .sheet(isPresented: $showQueue) {
+            PlayQueueSheet()
+                .environmentObject(player)
+        }
+        #if DEBUG
+        .background(GeometryReader { g in
+            Color.clear.onAppear {
+                NSLog("[SW] fullPlayer screen=%@ top=%@",
+                      NSCoder.string(for: UIScreen.main.bounds),
+                      NSCoder.string(for: g.frame(in: .global)))
+            }
+        })
+        #endif
     }
 
     // MARK: 背景
-
     private var background: some View {
         ZStack {
             Color(red: 0.98, green: 0.98, blue: 0.97)
@@ -465,41 +516,41 @@ struct FullPlayerView: View {
     // MARK: 顶部
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 0) {
             Button { presentationMode.wrappedValue.dismiss() } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 17, weight: .semibold))
-                    .frame(width: 40, height: 40)
             }
-            Spacer()
+            .frame(width: 44, height: 44)
+
+            // 中间标题：**必须限宽**，否则长歌单名会把 Spacer 挤没，
+            // 两端的按钮就被推出屏幕外（实测：顶栏按钮整个看不见）。
             VStack(spacing: 2) {
                 Text("正在播放").font(.system(size: 11)).foregroundColor(.secondary)
                 Text(player.playlistTitle)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
+                    .truncationMode(.middle)
             }
-            Spacer()
-            Button { player.stop(); presentationMode.wrappedValue.dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 40, height: 40)
+            .frame(maxWidth: 240)
+
+            Button { showQueue.toggle() } label: {
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 17, weight: .semibold))
             }
+            .frame(width: 44, height: 44)
+            .accessibilityLabel("播放队列")
         }
         .foregroundColor(.primary)
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
     }
 
     // MARK: 专辑封面
 
-    /// 封面用「按屏宽算、但有上下限」的方式定尺寸，而不是写死 300pt。
-    ///
-    /// 写死 300 的问题：iPhone SE（375×667）上它占了 45% 高度、把歌词区挤没；
-    /// 15/16 Pro Max 上又显得偏小、四周空一片。按屏宽 - 72（左右各留 36）
-    /// 推导，再夹在 200…340 之间，各种机型上比例都稳。
+    /// 封面保持 1:1 正方形，宽度撑满可用宽度，但用 maxWidth 限死上限，
+    /// 这样在矮屏上也不会把下面的进度条/控制区挤没。
     private var cover: some View {
         GeometryReader { geo in
-            let side = min(max(min(geo.size.width - 72, geo.size.height), 200), 340)
+            let side = min(geo.size.width, 320)
             ZStack {
                 if let song = player.currentSong {
                     AlbumArt(url: song.cover, size: side, corner: 16)
@@ -510,8 +561,65 @@ struct FullPlayerView: View {
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
-        .frame(height: 300)
-        .padding(.top, 12)
+        .aspectRatio(1, contentMode: .fit)
+        .frame(maxWidth: 320)
+    }
+
+    // MARK: 歌名 / 歌手
+
+    /// 歌名、歌手、进度、控制区统一左右留白 24pt 并整体居中，
+    /// 与封面、歌词的中轴对齐 —— 这一块之前贴着边，是"整页不协调"的主因。
+    private var songInfo: some View {
+        VStack(spacing: 3) {
+            if let song = player.currentSong {
+                Text(song.displayName)
+                    .font(.system(size: 19, weight: .semibold))
+                    .lineLimit(1)
+                    .multilineTextAlignment(.center)
+                Text(song.artists ?? "未知歌手")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+    }
+
+    // MARK: 进度
+
+    /// 进度条自己画（不用系统 Slider）：轨道 + 已播填充 + 拖动手势 seek。
+    /// 系统 Slider 在这个 sheet + 模糊背景的组合下实测不渲染，自定义最可靠。
+    /// 进度条自己画（不用系统 Slider）：轨道 + 已播填充 + 拖动手势 seek。
+    private var progressBar: some View {
+        // 不用 GeometryReader：它在 ScrollView 里会让 VStack 高度计算异常，
+        // 导致整行（含时间文字）塌缩为 0 而不可见。用固定内容宽度按比例绘制。
+        let trackW: CGFloat = 320
+        let p = CGFloat(min(max(player.progress, 0), 1))
+        return VStack(spacing: 8) {
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color(.systemGray4)).frame(width: trackW, height: 4)
+                Capsule().fill(Color(red: 0.82, green: 0.28, blue: 0.22))
+                    .frame(width: max(0, trackW * p), height: 4)
+                Circle().fill(Color(red: 0.82, green: 0.28, blue: 0.22))
+                    .frame(width: 11, height: 11)
+                    .offset(x: trackW * p - 5.5)
+            }
+            .frame(width: trackW, height: 16)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { v in
+                    guard player.duration > 0 else { return }
+                    player.progress = Double(min(max(v.location.x / trackW, 0), 1))
+                })
+            HStack {
+                Text(formatTime(player.currentTime)).font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
+                Spacer(minLength: 12)
+                Text(formatTime(player.duration)).font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
+            }
+            .frame(width: trackW)
+        }
     }
 
     // MARK: 歌词
@@ -523,97 +631,165 @@ struct FullPlayerView: View {
     /// 用户手动滑动时暂停自动滚动 3 秒，否则刚想往上翻就被拽回去，非常恼人。
     private var lyricsArea: some View {
         LyricsView(player: player)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity)
     }
 
     // MARK: 底部控制
 
     private var controls: some View {
-        VStack(spacing: 14) {
-            if let msg = player.errorMessage {
-                Label(msg, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(.red)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 24)
-            }
-
-            VStack(spacing: 6) {
-                if let song = player.currentSong {
-                    // 歌名/歌手必须居中：上一版是 HStack + Spacer 左对齐，
-                    // 整页其余元素（封面、歌词、按钮）都是居中的，
-                    // 只有这一块贴着左边，视觉上「整页没对齐」。
-                    VStack(spacing: 3) {
-                        Text(song.displayName)
-                            .font(.system(size: 19, weight: .semibold))
-                            .lineLimit(1)
-                            .multilineTextAlignment(.center)
-                        Text(song.artists ?? "未知歌手")
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .multilineTextAlignment(.center)
+        VStack(spacing: 18) {
+            // 主控制组单独用 ZStack 居中：不与其它兄弟视图共享 HStack，
+            // 避免嵌套 Spacer 把子视图挤出位置（实测模式按钮会被挤到进度条那行）。
+            ZStack {
+                HStack(spacing: 44) {
+                    Button { player.previous() } label: {
+                        Image(systemName: "backward.fill").font(.system(size: 26))
                     }
-                    .frame(maxWidth: .infinity)
-                }
-                Slider(value: Binding(
-                    get: { player.progress },
-                    set: { player.progress = $0 }
-                ))
-                .disabled(player.duration <= 0)
-                .tint(Color(red: 0.82, green: 0.28, blue: 0.22))
-                HStack {
-                    Text(formatTime(player.currentTime)).font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
-                    Spacer(minLength: 12)
-                    Text(formatTime(player.duration)).font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 24)
+                    .frame(width: 50, height: 50)
 
-            HStack(spacing: 44) {
-                Button { player.previous() } label: {
-                    Image(systemName: "backward.fill").font(.system(size: 24))
-                }
-                .frame(width: 44, height: 44)
-
-                Button { player.togglePlayPause() } label: {
-                    ZStack {
-                        Circle()
-                            .fill(Color(red: 0.82, green: 0.28, blue: 0.22))
-                            .frame(width: 66, height: 66)
-                        if player.isLoading {
-                            ProgressView().tint(.white)
-                        } else {
-                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 28, weight: .semibold))
-                                .foregroundColor(.white)
-                                .offset(x: player.isPlaying ? 0 : 2)
+                    Button { player.togglePlayPause() } label: {
+                        ZStack {
+                            Circle()
+                                .fill(Color(red: 0.82, green: 0.28, blue: 0.22))
+                                .frame(width: 68, height: 68)
+                            if player.isLoading {
+                                ProgressView().tint(.white)
+                            } else {
+                                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                    .font(.system(size: 28, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .offset(x: player.isPlaying ? 0 : 2)
+                            }
                         }
+                        .shadow(color: Color(red: 0.82, green: 0.28, blue: 0.22).opacity(0.35),
+                                radius: 14, x: 0, y: 6)
                     }
-                    .shadow(color: Color(red: 0.82, green: 0.28, blue: 0.22).opacity(0.35),
-                            radius: 14, x: 0, y: 6)
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                Button { player.next() } label: {
-                    Image(systemName: "forward.fill").font(.system(size: 24))
+                    Button { player.next() } label: {
+                        Image(systemName: "forward.fill").font(.system(size: 26))
+                    }
+                    .frame(width: 50, height: 50)
                 }
-                .frame(width: 44, height: 44)
             }
             .foregroundColor(.primary)
             .frame(maxWidth: .infinity)
-            .padding(.bottom, 8)
+
+            // 次要操作行：播放模式 + 队列，各自带文字，图标不出现也能看懂。
+            HStack(spacing: 56) {
+                Button { player.cyclePlayMode() } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: player.playMode.icon)
+                            .font(.system(size: 17, weight: .medium))
+                        Text(player.playMode.title)
+                            .font(.system(size: 10))
+                    }
+                    .foregroundColor(player.playMode == .sequential
+                                     ? Color.secondary : Color(red: 0.82, green: 0.28, blue: 0.22))
+                    .frame(width: 60)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(player.playMode.title)
+
+                Button { showQueue = true } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: "list.bullet").font(.system(size: 17, weight: .medium))
+                        Text("队列").font(.system(size: 10))
+                    }
+                    .foregroundColor(.secondary)
+                    .frame(width: 60)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("播放队列")
+            }
+
+            if let msg = player.errorMessage {
+                Text(msg).font(.system(size: 12)).foregroundColor(.red)
+                    .multilineTextAlignment(.center).padding(.horizontal, 24)
+            }
         }
-        .frame(maxWidth: .infinity)
-        .padding(.bottom, 22)
     }
 
     private func formatTime(_ t: Double) -> String {
         guard t.isFinite, t >= 0 else { return "0:00" }
         let total = Int(t)
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+// MARK: - 播放队列
+
+/// 播放队列面板：列出当前歌单所有歌，点一行直接切过去。
+///
+/// 用户要的是「随机/顺序播放」之外还能**看得见**队列在放什么 ——
+/// 否则随机模式下一首是什么完全不可预期。
+struct PlayQueueSheet: View {
+    @EnvironmentObject private var player: AudioPlayer
+    @Environment(\.presentationMode) private var presentationMode
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section {
+                    ForEach(Array(player.queue.enumerated()), id: \.element.id) { idx, song in
+                        Button {
+                            player.play(at: idx)
+                            presentationMode.wrappedValue.dismiss()
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: idx == player.currentIndex
+                                      ? "speaker.wave.2.fill" : "music.note")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(idx == player.currentIndex
+                                                     ? Color(red: 0.82, green: 0.28, blue: 0.22)
+                                                     : Color.secondary)
+                                    .frame(width: 18)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(song.displayName)
+                                        .font(.system(size: 14))
+                                        .lineLimit(1)
+                                    if let a = song.artists, !a.isEmpty {
+                                        Text(a)
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                                if idx == player.currentIndex {
+                                    Text(player.isPlaying ? "播放中" : "暂停")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    HStack {
+                        Text("播放队列（\(player.queue.count) 首）")
+                        Spacer()
+                        Text(player.playMode.title)
+                            .foregroundColor(Color(red: 0.82, green: 0.28, blue: 0.22))
+                    }
+                }
+            }
+            .navigationTitle("正在播放")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        player.stop()
+                        presentationMode.wrappedValue.dismiss()
+                    } label: {
+                        Label("停止", systemImage: "stop.fill")
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") { presentationMode.wrappedValue.dismiss() }
+                }
+            }
+        }
     }
 }
 

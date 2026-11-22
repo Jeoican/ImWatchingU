@@ -467,6 +467,12 @@ struct ImageViewer: View {
     /// 用字典按页号存而不是单个状态：TabView 会预载相邻页，
     /// 单个变量会被邻页的图覆盖，保存下来就成了隔壁那张。
     @State private var images: [Int: UIImage] = [:]
+    /// 每页的**原始字节**。
+    ///
+    /// 界面显示的是按屏幕分辨率解码的版本（2560px 上限），
+    /// 直接存它等于把原图降过采样。留住原始字节，保存到相册的
+    /// 才是货真价实的原图。
+    @State private var rawImages: [Int: Data] = [:]
     /// 下滑进度 0…1，用于背景淡出
     @State private var dismissProgress: CGFloat = 0
     @State private var saveAlert: SaveAlert?
@@ -496,6 +502,7 @@ struct ImageViewer: View {
                                   media: m,
                                   pageIndex: i,
                                   images: $images,
+                                  rawImages: $rawImages,
                                   dismissProgress: $dismissProgress,
                                   onDismiss: { dismiss() })
                         .tag(i)
@@ -551,20 +558,32 @@ struct ImageViewer: View {
     }
 
     private func save() {
+        // 优先存原始字节：那是真正的原图（微博 4126×5556），
+        // 不经过任何二次编码，也没有被降过采样。
+        if let raw = rawImages[index] {
+            PhotoSaver.save(rawData: raw) { result in
+                handleSaveResult(result)
+            }
+            return
+        }
         guard let img = images[index] else {
             saveAlert = SaveAlert(title: "图片还没加载完成，稍等一下再保存")
             return
         }
         PhotoSaver.save(img) { result in
-            switch result {
-            case .success:
-                saveAlert = SaveAlert(title: "已保存到相册")
-            case .failure(let err):
-                let denied = (err as? PhotoSaver.Denied) != nil
-                saveAlert = SaveAlert(title: denied
-                    ? "没有相册写入权限，请到 设置 › 沃池 › 照片 里打开「添加照片」"
-                    : "保存失败：\(err.localizedDescription)")
-            }
+            handleSaveResult(result)
+        }
+    }
+
+    private func handleSaveResult(_ result: Result<Void, Error>) {
+        switch result {
+        case .success:
+            saveAlert = SaveAlert(title: "已保存到相册")
+        case .failure(let err):
+            let denied = (err as? PhotoSaver.Denied) != nil
+            saveAlert = SaveAlert(title: denied
+                ? "没有相册写入权限，请到 设置 › 沃池 › 照片 里打开「添加照片」"
+                : "保存失败：\(err.localizedDescription)")
         }
     }
 }
@@ -588,6 +607,7 @@ private struct ZoomableImage: View {
     let media: ArchiveMedia
     let pageIndex: Int
     @Binding var images: [Int: UIImage]
+    @Binding var rawImages: [Int: Data]
     @Binding var dismissProgress: CGFloat
     var onDismiss: () -> Void
 
@@ -620,6 +640,14 @@ private struct ZoomableImage: View {
                                     dismissProgress = 0
                                 }
                             }
+                        },
+                        onZoomChanged: { scale in
+                            // 放大后位图分辨率要跟上：从原始字节重新解一份。
+                            // 阈值 1.5x 是因为 1x~1.5x 之间屏幕物理像素就够用了
+                            // （393pt × 1.5 × 3 = 1766px），再往上才开始拉伸。
+                            if scale > 1.5 {
+                                full.redecode(maxPixelSize: SharpZoomImageView.maxDecodePixelSize)
+                            }
                         }
                     )
                     .frame(width: geo.size.width, height: geo.size.height)
@@ -645,12 +673,23 @@ private struct ZoomableImage: View {
         .onReceive(full.$image) { img in
             if let img { images[pageIndex] = img }
         }
+        // 原始字节单独留一份，保存到相册时用它才是真原图
+        .onReceive(full.$rawData) { data in
+            if let data { rawImages[pageIndex] = data }
+        }
     }
 
     private func load() {
         // 先铺预览（大概率命中缓存），再拉原图。两个独立 loader，互不取消。
         preview.load(itemID: itemID, seq: media.seq, tier: .detail)
-        full.load(itemID: itemID, seq: media.seq, tier: .original)
+        // 原图按 1x 显示所需的尺寸解码：整张图塞进 393pt 宽的屏幕，
+        // @3x 下有 1179 物理像素就够看了。先用小位图，内存友好、加载快。
+        //
+        // 放大到 1.5x 以上时，onZoomChanged 会调 `full.redecode(...)`，
+        // 从同一份原始字节解出 4096px 的版本（不重新下载）。
+        // 原始字节始终完整保留（rawData），供「保存原图」用。
+        full.load(itemID: itemID, seq: media.seq, tier: .original,
+                  maxPixelSize: SharpZoomImageView.fitDecodePixelSize)
     }
 }
 
@@ -686,6 +725,20 @@ private struct ZoomableScrollView: UIViewRepresentable {
     var onSingleTap: () -> Void
     var onDismissChanged: (CGFloat) -> Void
     var onDismissEnd: (CGFloat, CGFloat) -> Void
+    /// 缩放级别变化。用于触发渐进式重解码：放大后换更高清的位图。
+    var onZoomChanged: ((CGFloat) -> Void)?
+
+    init(image: UIImage,
+         onSingleTap: @escaping () -> Void,
+         onDismissChanged: @escaping (CGFloat) -> Void,
+         onDismissEnd: @escaping (CGFloat, CGFloat) -> Void,
+         onZoomChanged: ((CGFloat) -> Void)? = nil) {
+        self.image = image
+        self.onSingleTap = onSingleTap
+        self.onDismissChanged = onDismissChanged
+        self.onDismissEnd = onDismissEnd
+        self.onZoomChanged = onZoomChanged
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onSingleTap: onSingleTap,
@@ -707,8 +760,7 @@ private struct ZoomableScrollView: UIViewRepresentable {
         sv.decelerationRate = .fast
         sv.clipsToBounds = true
 
-        let iv = UIImageView(image: image)
-        iv.contentMode = .scaleAspectFit
+        let iv = SharpZoomImageView(frame: .zero)
         iv.backgroundColor = .black
         iv.isUserInteractionEnabled = true
         sv.addSubview(iv)
@@ -765,6 +817,7 @@ private struct ZoomableScrollView: UIViewRepresentable {
         context.coordinator.onSingleTap = onSingleTap
         context.coordinator.onDismissChanged = onDismissChanged
         context.coordinator.onDismissEnd = onDismissEnd
+        context.coordinator.onZoomChanged = onZoomChanged
         // 换图（预览 → 原图）：只换位图，**不动 zoomScale**。
         // 两张图的宽高比一致，所以 1x 基准尺寸完全相同，视觉上零跳动；
         // 用户此刻可能正捏在 2x 上看细节，复位会让人觉得"又被弹回去了"。
@@ -778,9 +831,11 @@ private struct ZoomableScrollView: UIViewRepresentable {
         var onSingleTap: () -> Void
         var onDismissChanged: (CGFloat) -> Void
         var onDismissEnd: (CGFloat, CGFloat) -> Void
+        /// 缩放级别变化 → 触发渐进式重解码
+        var onZoomChanged: ((CGFloat) -> Void)?
 
         weak var scrollView: ZoomScrollView?
-        weak var imageView: UIImageView?
+        weak var imageView: SharpZoomImageView?
         weak var dismissPan: UIPanGestureRecognizer?
 
         init(onSingleTap: @escaping () -> Void,
@@ -854,6 +909,12 @@ private struct ZoomableScrollView: UIViewRepresentable {
             // 缩放过程中 zoomScale 变化，pan 的可用性要跟着切：
             // 放大后允许平移，缩回 1x 立刻关掉（把横向拖动还给 TabView 翻页）
             syncPanAvailability()
+            // 关键：栅格分辨率要跟着缩放级别走，否则放大的只是被拉伸的旧栅格
+            // （这正是旧实现「放大比不上微博」的原因）
+            imageView?.updateRasterScale(zoomScale: scrollView.zoomScale)
+            // 位图本身的分辨率也要跟上：1x 时用的小位图放到 3x 就糊了。
+            // 从原始字节重新解一份更清晰的（不重新下载，纯本地重解码）。
+            onZoomChanged?(scrollView.zoomScale)
         }
 
         /// 内容小于视口时靠 center 补偏移把它摆正；大于视口时 center 落在
@@ -970,6 +1031,62 @@ enum PhotoSaver {
         var errorDescription: String? { "图片编码失败" }
     }
 
+    /// 保存**原始字节**到系统相册。
+    ///
+    /// 这是「保存原图」的正确路径：直接落盘后端给的原始文件，
+    /// 不解码、不重编码，像素一点不损失（微博原图 4126×5556）。
+    /// 走 `UIImage` 那条路会先按屏幕分辨率降采样再存，存出来的其实是缩图。
+    static func save(rawData: Data, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let ext = fileExtension(for: rawData) else {
+            DispatchQueue.main.async { completion(.failure(EncodeFailed())) }
+            return
+        }
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sw_save_\(UUID().uuidString).\(ext)")
+        do {
+            try rawData.write(to: tmp, options: .atomic)
+        } catch {
+            DispatchQueue.main.async { completion(.failure(error)) }
+            return
+        }
+        performAdd(from: tmp, completion: completion)
+    }
+
+    /// 从文件魔数猜扩展名。扩展名必须对，否则 Photos 同样报 3302。
+    private static func fileExtension(for data: Data) -> String? {
+        let b = [UInt8](data.prefix(16))
+        guard b.count >= 4 else { return nil }
+        if b[0] == 0xFF, b[1] == 0xD8, b[2] == 0xFF { return "jpg" }
+        if b[0] == 0x89, b[1] == 0x50, b[2] == 0x4E, b[3] == 0x47 { return "png" }
+        if b[0] == 0x47, b[1] == 0x49, b[2] == 0x46 { return "gif" }
+        if b.count >= 12, b[0] == 0x52, b[1] == 0x49, b[2] == 0x46, b[3] == 0x46,
+           b[8] == 0x57, b[9] == 0x45, b[10] == 0x42, b[11] == 0x50 { return "webp" }
+        // ISO-BMFF（HEIC/HEIF/AVIF）：第 4–7 字节是 "ftyp"
+        if b.count >= 12, b[4] == 0x66, b[5] == 0x74, b[6] == 0x79, b[7] == 0x70 { return "heic" }
+        return nil
+    }
+
+    /// 真正干活的部分：授权 → addResource。
+    private static func performAdd(from fileURL: URL,
+                                    completion: @escaping (Result<Void, Error>) -> Void) {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                DispatchQueue.main.async { completion(.failure(Denied())) }
+                return
+            }
+            PHPhotoLibrary.shared().performChanges({
+                let req = PHAssetCreationRequest.forAsset()
+                req.addResource(with: .photo, fileURL: fileURL, options: nil)
+            }, completionHandler: { ok, err in
+                try? FileManager.default.removeItem(at: fileURL)  // 用完即删
+                DispatchQueue.main.async {
+                    if ok { completion(.success(())) }
+                    else { completion(.failure(err ?? Denied())) }
+                }
+            })
+        }
+    }
+
     /// 保存到系统相册。
     ///
     /// 为什么不用 `creationRequestForAsset(from: UIImage)`：
@@ -981,6 +1098,8 @@ enum PhotoSaver {
     /// 可靠路径是系统推荐的做法：先编码成标准 JPEG 落盘（临时文件），
     /// 再 `addResource(with: .photo, fileURL:)` 交给 Photos，由它自己
     /// 从文件读，避开内存位图那套校验。文件扩展名必须正确，否则同样 3302。
+    ///
+    /// （有原始字节时优先走 `save(rawData:)`，那条路连编码都省了。）
     static func save(_ image: UIImage,
                      completion: @escaping (Result<Void, Error>) -> Void) {
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
