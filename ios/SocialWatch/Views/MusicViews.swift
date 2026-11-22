@@ -726,7 +726,9 @@ final class FullPlayerViewController: UIViewController {
         let side = min(258, W - 120, pageH * 0.52)
         // 封面 + 间距18 + 歌名28 + 间距4 + 歌手20 + 间距12 + 歌词20
         let blockH = side + 102
-        let blockTop = max(8, (pageH - blockH) / 2)
+        // 剩余留白按上 60% / 下 40% 分配：比纯居中更靠近进度条，
+        // 同时拉开与顶栏的距离（真机反馈纯居中后歌词与进度条之间仍偏空）。
+        let blockTop = max(8, (pageH - blockH) * 0.6)
         coverShadowView.frame = CGRect(x: (W - side) / 2, y: blockTop, width: side, height: side)
         coverImageView.frame = coverShadowView.bounds
         songLabel.frame = CGRect(x: 24, y: blockTop + side + 18, width: W - 48, height: 28)
