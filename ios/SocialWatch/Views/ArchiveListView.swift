@@ -145,15 +145,36 @@ private struct ArchiveSourcePage: View {
     }
 
     var body: some View {
-        List {
-            if source == .netease {
-                neteaseSections
+        Group {
+            if source == .douyin {
+                // 抖音走沉浸式全屏 feed：上下滑切换作品，点开看全部图。
+                // 数据加载/分页/筛选仍复用本页下面那套，只是换了呈现方式。
+                if let errorText {
+                    VStack(spacing: 14) {
+                        Label(errorText, systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.red)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+                        Button("重试") { reload() }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.white)
+                } else {
+                    DouyinFeedView(items: items, hasMore: hasMore) {
+                        load(page: false)
+                    }
+                }
+            } else if source == .netease {
+                List { neteaseSections }
+                    .listStyle(.plain)
+                    .refreshable { reload(keepCurrent: true) }
             } else {
-                archiveSections
+                List { archiveSections }
+                    .listStyle(.plain)
+                    .refreshable { reload(keepCurrent: true) }
             }
         }
-        .listStyle(.plain)
-        .refreshable { reload(keepCurrent: true) }
         // task(id:) 在首次出现、以及切换状态筛选时都会触发
         .task(id: filter) { loadInitial() }
     }

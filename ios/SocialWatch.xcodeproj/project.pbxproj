@@ -28,6 +28,7 @@
 		A1000014 /* MusicViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015 /* MusicViews.swift */; };
 		A1000015 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016 /* AudioPlayer.swift */; };
 		A1000016 /* DataCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017 /* DataCache.swift */; };
+		A1000017 /* DouyinFeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018 /* DouyinFeedView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -53,6 +54,7 @@
 		A2000015 /* MusicViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicViews.swift; sourceTree = "<group>"; };
 		A2000016 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
 		A2000017 /* DataCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataCache.swift; sourceTree = "<group>"; };
+		A2000018 /* DouyinFeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DouyinFeedView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -128,6 +130,7 @@
 				A2000011 /* PlatformLoginView.swift */,
 				A2000012 /* SettingsView.swift */,
 				A2000015 /* MusicViews.swift */,
+				A2000018 /* DouyinFeedView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -251,6 +254,7 @@
 				A1000014 /* MusicViews.swift in Sources */,
 				A1000015 /* AudioPlayer.swift in Sources */,
 				A1000016 /* DataCache.swift in Sources */,
+				A1000017 /* DouyinFeedView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
