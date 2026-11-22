@@ -462,6 +462,9 @@ private struct WeiboGridImage: View {
 struct ImageViewer: View {
     let media: [ArchiveMedia]
     let itemID: Int
+    /// 抖音图文的 BGM。从抖音 feed 进大图时传入，让"图片+音乐"连续；
+    /// 其他平台不传，音乐条自动隐藏。
+    let music: ArchiveMusic?
     @State private var index: Int
     /// 每页已加载到的图片，供「保存」取用。
     /// 用字典按页号存而不是单个状态：TabView 会预载相邻页，
@@ -476,6 +479,8 @@ struct ImageViewer: View {
     /// 下滑进度 0…1，用于背景淡出
     @State private var dismissProgress: CGFloat = 0
     @State private var saveAlert: SaveAlert?
+    /// 音乐条播放态，仅用于刷新按钮图标；真实播放状态在 FeedMusicPlayer 单例里。
+    @State private var musicPlaying = false
     @Environment(\.dismiss) private var dismiss
 
     private struct SaveAlert: Identifiable {
@@ -483,9 +488,10 @@ struct ImageViewer: View {
         let title: String
     }
 
-    init(media: [ArchiveMedia], startIndex: Int, itemID: Int) {
+    init(media: [ArchiveMedia], startIndex: Int, itemID: Int, music: ArchiveMusic? = nil) {
         self.media = media
         self.itemID = itemID
+        self.music = music
         _index = State(initialValue: min(max(0, startIndex), max(0, media.count - 1)))
     }
 
@@ -515,6 +521,13 @@ struct ImageViewer: View {
             overlay
         }
         .statusBarHidden(true)
+        .onAppear {
+            // 图片+音乐连续：进大图时确保当前作品的 BGM 在播（已播则不动）
+            if music != nil {
+                FeedMusicPlayer.shared.playIfNeeded(itemID: itemID)
+                musicPlaying = FeedMusicPlayer.shared.isPlaying(itemID: itemID)
+            }
+        }
         .alert(item: $saveAlert) { a in
             Alert(title: Text(a.title))
         }
@@ -541,6 +554,39 @@ struct ImageViewer: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
+
+            // 抖音图文 BGM 条：进大图后图片+音乐连续，点按暂停/继续
+            if let m = music {
+                Button {
+                    FeedMusicPlayer.shared.toggle(itemID: itemID)
+                    musicPlaying = FeedMusicPlayer.shared.isPlaying(itemID: itemID)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: musicPlaying ? "pause.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 17))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("♫ \(m.displayTitle)")
+                                .font(.system(size: 12, weight: .semibold))
+                                .lineLimit(1)
+                            Text(m.displayAuthor)
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.7))
+                                .lineLimit(1)
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    // 不用 ultraThinMaterial：浅色/白色图片上它会几乎透明，
+                    // 白字直接看不清。固定深色底才保证"图片+音乐"一眼可见。
+                    .background(Color.black.opacity(0.48))
+                    .clipShape(Capsule())
+                    .overlay(
+                        Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.5)
+                    )
+                }
+                .padding(.top, 10)
+            }
 
             Spacer()
         }

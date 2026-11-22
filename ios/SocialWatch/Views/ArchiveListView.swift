@@ -147,7 +147,7 @@ private struct ArchiveSourcePage: View {
     var body: some View {
         Group {
             if source == .douyin {
-                // 抖音走沉浸式全屏 feed：上下滑切换作品，点开看全部图。
+                // 抖音先走个人主页式作品宫格；点某张作品才进沉浸式图文+音乐页。
                 // 数据加载/分页/筛选仍复用本页下面那套，只是换了呈现方式。
                 if let errorText {
                     VStack(spacing: 14) {
@@ -161,9 +161,22 @@ private struct ArchiveSourcePage: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.white)
                 } else {
-                    DouyinFeedView(items: items, hasMore: hasMore) {
+                    #if DEBUG
+                    // 模拟器无法注入点击：直接进沉浸式页核对播放样式。
+                    if ProcessInfo.processInfo.environment["SW_DEBUG_FEEDONLY"] == "1" {
+                        DouyinFeedView(items: items, hasMore: hasMore,
+                                       loadMore: { load(page: false) },
+                                       onDismiss: nil, onSearch: nil)
+                    } else {
+                        DouyinProfileView(items: items, hasMore: hasMore) {
+                            load(page: false)
+                        }
+                    }
+                    #else
+                    DouyinProfileView(items: items, hasMore: hasMore) {
                         load(page: false)
                     }
+                    #endif
                 }
             } else if source == .netease {
                 List { neteaseSections }
