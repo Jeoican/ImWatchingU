@@ -1102,6 +1102,29 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_file(p, ctype, max_age=604800 if not thumb_edge else 0)
                 return
 
+            if path == "/api/archive/audio":
+                # 作品 BGM。走和图片一样的鉴权 + Range + ETag，
+                # AVPlayer 会发 Range 请求，_send_file 原生支持。
+                cid = int((q.get("id") or ["0"])[0] or 0)
+                from .core import archive as arc
+                conn = arc.connect(DB)
+                try:
+                    row = conn.execute(
+                        "SELECT local_path, remote_url FROM content_music WHERE content_id=?",
+                        (cid,),
+                    ).fetchone()
+                finally:
+                    conn.close()
+                p = Path(row["local_path"]) if row and row["local_path"] else None
+                if not p or not p.exists():
+                    self._send(404, b"not archived", "text/plain; charset=utf-8")
+                    return
+                # 音乐文件不可变，长缓存；播放器按 Range 分段取。
+                # 抖音 BGM 有 mp3 也有 m4a，Content-Type 必须跟容器匹配。
+                ctype = "audio/mp4" if p.suffix.lower() == ".m4a" else "audio/mpeg"
+                self._send_file(p, ctype, max_age=604800)
+                return
+
             if path == "/api/events":
                 store = Store(DB)
                 limit = min(int((q.get("limit") or ["200"])[0]), 1000)

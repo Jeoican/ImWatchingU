@@ -130,6 +130,18 @@ def get_content(conn, content_id: int) -> dict | None:
         "width": m["width"], "height": m["height"],
         "cached": bool(m["local_path"]),
     } for m in media]
+    # 作品 BGM：抖音图文也带音乐，iOS feed 用它做自动播放 + 右下角转盘
+    mrow = conn.execute(
+        "SELECT music_id, title, author, album, duration, remote_url, "
+        "  cover_url, local_path, bytes FROM content_music WHERE content_id=?",
+        (content_id,),
+    ).fetchone()
+    d["music"] = ({
+        "id": mrow["music_id"], "title": mrow["title"], "author": mrow["author"],
+        "album": mrow["album"], "duration": mrow["duration"],
+        "cover_url": mrow["cover_url"], "cached": bool(mrow["local_path"]),
+        "bytes": mrow["bytes"],
+    } if mrow else None)
     cms = conn.execute(
         "SELECT comment_id, author_name, author_id, text, likes, replied_by_author, "
         "  liked_by_author, posted_at, state FROM content_comment "

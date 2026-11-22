@@ -85,6 +85,24 @@ CREATE TABLE IF NOT EXISTS content_comment (
     UNIQUE(content_id, comment_id)
 );
 CREATE INDEX IF NOT EXISTS idx_comment_content ON content_comment(content_id, posted_at);
+
+-- 作品 BGM（抖音图文/视频都带音乐）。一条作品最多一首，按 content_id 唯一。
+-- local_path 是下载到 data/archive 的 mp3；remote_url 留档以便换 CDN 重下。
+CREATE TABLE IF NOT EXISTS content_music (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    content_id   INTEGER NOT NULL UNIQUE,
+    music_id     TEXT,
+    title        TEXT,
+    author       TEXT,
+    album        TEXT,
+    duration     INTEGER,
+    remote_url   TEXT,
+    cover_url    TEXT,
+    local_path   TEXT,
+    bytes        INTEGER,
+    fetched_at   INTEGER,
+    FOREIGN KEY(content_id) REFERENCES content(id) ON DELETE CASCADE
+);
 """
 
 STATE_ALIVE, STATE_DELETED, STATE_HIDDEN = "alive", "deleted", "hidden"
@@ -156,6 +174,68 @@ def save_media(root: Path, target_key: str, post_id: str, seq: int, data: bytes)
         "ext": ext,
         "skipped": existed,
     }
+
+
+# ------------------------------------------------------------------ 音频落盘
+def sniff_audio_ext(data: bytes) -> str | None:
+    """按魔数判断音频容器。抖音 BGM 有 mp3 也有 m4a（ftypM4A），
+    写错扩展名会让 AVPlayer 认不出格式。识别不出来就返回 None 不落盘。
+    """
+    if data[:3] == b"ID3" or data[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+        return ".mp3"
+    if len(data) >= 12 and data[4:8] == b"ftyp" and b"M4A" in data[8:12]:
+        return ".m4a"
+    return None
+
+
+def save_audio(root: Path, target_key: str, post_id: str, data: bytes) -> dict | None:
+    """把一条作品的 BGM 写盘：data/archive/<target>/<post_id>/00.<ext>。
+
+    和图片分目录同构，但固定用 `00` 前缀，不与图片的 `01.jpg` 等 seq 编号冲突。
+    扩展名按真实容器定（mp3 / m4a），识别不出来就不存——存的目的是能播，
+    存一个播放器认不出的文件没意义。
+    """
+    ext = sniff_audio_ext(data)
+    if not ext:
+        return None
+    p = media_path(root, target_key, post_id, 0, ext)
+    # 换过容器（mp3↔m4a）时清掉旧扩展名的残留，避免留下两个文件
+    for old in (".mp3", ".m4a"):
+        other = media_path(root, target_key, post_id, 0, old)
+        if old != ext and other.exists():
+            other.unlink()
+    existed = p.exists() and p.stat().st_size == len(data)
+    if not existed:
+        tmp = p.with_suffix(p.suffix + ".part")
+        tmp.write_bytes(data)
+        tmp.replace(p)
+    return {
+        "local_path": str(p),
+        "bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "skipped": existed,
+        "ext": ext,
+    }
+
+
+def upsert_music(conn, content_id: int, m: dict) -> None:
+    """写入/刷新一条作品的音乐元信息与本地路径。"""
+    if not content_id:
+        return
+    conn.execute(
+        "INSERT INTO content_music(content_id, music_id, title, author, album, "
+        "  duration, remote_url, cover_url, local_path, bytes, fetched_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(content_id) DO UPDATE SET "
+        "  music_id=excluded.music_id, title=excluded.title, author=excluded.author, "
+        "  album=excluded.album, duration=excluded.duration, "
+        "  remote_url=excluded.remote_url, cover_url=excluded.cover_url, "
+        "  local_path=excluded.local_path, bytes=excluded.bytes, fetched_at=excluded.fetched_at",
+        (content_id, m.get("music_id"), m.get("title"), m.get("author"),
+         m.get("album"), m.get("duration"), m.get("remote_url"),
+         m.get("cover_url"), m.get("local_path"), m.get("bytes"),
+         int(time.time())),
+    )
 
 
 # ------------------------------------------------------------------ 写入

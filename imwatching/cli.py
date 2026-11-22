@@ -196,6 +196,8 @@ def _archive_content(target: dict, data: dict, br, opts: dict) -> str:
         conn.close()
         bits = [f"归档 {st['posts']} 条(新 {st['new']})",
                 f"图 {st['media_saved']} 张"]
+        if st.get("music_saved"):
+            bits.append(f"BGM {st['music_saved']} 首")
         if st.get("notes_visited"):
             bits.append(f"详情页 {st['notes_visited']}")
         if st.get("detail_fail"):

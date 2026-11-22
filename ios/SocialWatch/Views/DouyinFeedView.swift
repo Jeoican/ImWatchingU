@@ -1,5 +1,83 @@
 import SwiftUI
 import UIKit
+import AVFoundation
+
+// MARK: - 作品 BGM 播放器
+//
+// 抖音图文本质就是"图片轮播 + 音乐"，所以 feed 进入一条作品时要自动播它的 BGM。
+// 关键点：
+//   · 后端音频接口要 Bearer 头，AVPlayer 直接 init(url:) 发不出去。
+//     AVURLAsset 也没有干净的自定义 header 注入点，所以走"带 token 下载到
+//     临时文件 → AVPlayer 播本地文件"这条最稳的路。音频单首 0.5–2MB，
+//     URLSession 磁盘缓存命中 ETag 后不重复流量。
+//   · 全局只留一个播放器实例，滑走就 stop，不叠多个（内存/音频会话）。
+//   · 循环播放：抖音 BGM 短则 20 秒，图集通常看更久，播完从头再来。
+private final class FeedMusicPlayer {
+    static let shared = FeedMusicPlayer()
+
+    private var player: AVPlayer?
+    private var loopObserver: NSObjectProtocol?
+    private var currentItemID: Int?
+
+    /// 当前是否在播（给转盘状态用）
+    private(set) var isPlaying = false
+
+    func play(itemID: Int) {
+        guard let url = try? APIClient.shared.audioURL(itemID: itemID),
+              let token = APIClient.bearerToken(), !token.isEmpty else { return }
+        if currentItemID == itemID, player != nil, isPlaying { return }
+        stop()
+
+        // AVURLAsset 本身不支持自定义 header，iOS 通过 AVAssetResourceLoader
+        // 也拿不到现成的注入点。最稳的做法：用 URLSession 带 token 下载音频字节，
+        // 写成临时文件再交给 AVPlayer 播本地文件。
+        // 后端音频文件带 ETag + Range，下载走磁盘缓存不重复流量。
+        currentItemID = itemID
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        URLSession.shared.dataTask(with: req) { [weak self] data, _, _ in
+            guard let self, let data, !data.isEmpty else { return }
+            DispatchQueue.main.async {
+                guard self.currentItemID == itemID else { return }  // 已经滑走了
+                let tmp = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("sw-bgm-\(itemID).mp3")
+                try? data.write(to: tmp)
+                let p = AVPlayer(url: tmp)
+                p.volume = 0.7
+                p.play()
+                self.player = p
+                self.isPlaying = true
+                self.loopObserver = NotificationCenter.default.addObserver(
+                    forName: .AVPlayerItemDidPlayToEndTime, object: p.currentItem,
+                    queue: .main) { _ in
+                        p.seek(to: .zero)
+                        p.play()
+                        self.isPlaying = true
+                    }
+            }
+        }.resume()
+    }
+
+    func pause() {
+        player?.pause()
+        isPlaying = false
+    }
+
+    func resume() {
+        guard let player else { return }
+        player.play()
+        isPlaying = true
+    }
+
+    func stop() {
+        if let loopObserver { NotificationCenter.default.removeObserver(loopObserver) }
+        loopObserver = nil
+        player?.pause()
+        player = nil
+        currentItemID = nil
+        isPlaying = false
+    }
+}
 
 // MARK: - 抖音沉浸式浏览
 //
@@ -44,6 +122,8 @@ struct DouyinFeedView: View {
         .fullScreenCover(item: $selection) { sel in
             ImageViewer(media: sel.detail.media, startIndex: 0, itemID: sel.detail.id)
         }
+        // 离开抖音页（切到其他平台标签 / 退出内容库）就停 BGM
+        .onDisappear { FeedMusicPlayer.shared.stop() }
     }
 }
 
@@ -135,6 +215,15 @@ private final class DouyinFeedPageVC: UIViewController {
     private let moreHint = UILabel()
     private let swipeHint = UILabel()
 
+    // BGM 转盘：右下角旋转唱片 + 歌名/作者，点按暂停/继续
+    private let discView = UIImageView()
+    private let discRing = UIImageView()
+    private let musicTitle = UILabel()
+    private let musicAuthor = UILabel()
+    private let musicNote = UILabel()
+    private var discAnimation: CABasicAnimation?
+    private var music: ArchiveMusic?
+
     private let imageLoader = ImageLoader()
     private let avatarLoader = ImageLoader()
     private var detail: ArchiveDetail?
@@ -161,13 +250,26 @@ private final class DouyinFeedPageVC: UIViewController {
 
         let safeBottom = view.safeAreaInsets.bottom
         let metaY = h - safeBottom - 22 - 18
-        metaLabel.frame = CGRect(x: 18, y: metaY, width: w - 110, height: 18)
+        // 转盘固定在右下角（44pt 唱片），meta 文案给它让出空间
+        let discSize: CGFloat = 44
+        let discX = w - discSize - 16
+        let discY = metaY - 13
+        discView.frame = CGRect(x: discX, y: discY, width: discSize, height: discSize)
+        discRing.frame = discView.frame
+        discView.layer.cornerRadius = discSize / 2
+        discRing.layer.cornerRadius = discSize / 2
+        // 歌名/作者横排在唱片左侧，随转盘一起显示
+        musicTitle.frame = CGRect(x: 18, y: discY + 2, width: discX - 30, height: 17)
+        musicAuthor.frame = CGRect(x: 18, y: discY + 21, width: discX - 30, height: 15)
+        musicNote.frame = CGRect(x: 0, y: discY + 4, width: 0, height: 0)  // 隐藏，仅占位
+
+        metaLabel.frame = CGRect(x: 18, y: metaY - 22, width: discX - 30, height: 18)
 
         // 文案最多 4 行；用 sizeThatFits 量出真实高度，让昵称行贴着文案上方
         let textW = w - 36
         textLabel.preferredMaxLayoutWidth = textW
         let textH = min(96, textLabel.sizeThatFits(CGSize(width: textW, height: .greatestFiniteMagnitude)).height)
-        let textY = metaY - 10 - textH
+        let textY = metaY - 22 - 10 - textH
         textLabel.frame = CGRect(x: 18, y: textY, width: textW, height: textH)
 
         let nameY = textY - 10 - 34
@@ -264,6 +366,41 @@ private final class DouyinFeedPageVC: UIViewController {
             UIView.animate(withDuration: 0.5) { self?.swipeHint.alpha = 0 }
         }
 
+        // BGM 转盘：唱片底图 + 中心孔（用 ring 叠一个小圆），歌名/作者
+        discView.contentMode = .scaleAspectFill
+        discView.clipsToBounds = true
+        discView.isHidden = true
+        discView.backgroundColor = UIColor(white: 0.15, alpha: 0.9)
+        discView.layer.borderColor = UIColor(white: 0.85, alpha: 0.9).cgColor
+        discView.layer.borderWidth = 2
+        view.addSubview(discView)
+
+        discRing.isHidden = true
+        discRing.backgroundColor = UIColor.black.withAlphaComponent(0.85)
+        discRing.layer.borderColor = UIColor.white.cgColor
+        discRing.layer.borderWidth = 1
+        view.addSubview(discRing)
+
+        musicTitle.font = .systemFont(ofSize: 13, weight: .semibold)
+        musicTitle.textColor = .white
+        musicTitle.numberOfLines = 1
+        musicTitle.isHidden = true
+        addShadow(musicTitle)
+        view.addSubview(musicTitle)
+
+        musicAuthor.font = .systemFont(ofSize: 11)
+        musicAuthor.textColor = UIColor.white.withAlphaComponent(0.75)
+        musicAuthor.numberOfLines = 1
+        musicAuthor.isHidden = true
+        addShadow(musicAuthor)
+        view.addSubview(musicAuthor)
+
+        // 转盘自己的点击手势（暂停/继续），要优先于整页的"点开大图"
+        let discTap = UITapGestureRecognizer(target: self, action: #selector(toggleMusic))
+        discTap.cancelsTouchesInView = true
+        discView.addGestureRecognizer(discTap)
+        discView.isUserInteractionEnabled = true
+
         let tap = UITapGestureRecognizer(target: self, action: #selector(openFullscreen))
         tap.cancelsTouchesInView = false
         view.addGestureRecognizer(tap)
@@ -326,6 +463,64 @@ private final class DouyinFeedPageVC: UIViewController {
             avatar.image = Self.placeholder(letter: d.authorName ?? "抖")
         }
         if didLayout { view.setNeedsLayout() }
+
+        // BGM：有播放地址就自动播 + 转盘转起来；没有直链也显示歌名（信息不丢）
+        if let m = d.music, !(m.title ?? "").isEmpty {
+            self.music = m
+            musicTitle.text = "♫ \(m.displayTitle)"
+            musicAuthor.text = m.displayAuthor
+            musicTitle.isHidden = false
+            musicAuthor.isHidden = false
+            discView.isHidden = false
+            discRing.isHidden = false
+            // 唱片中心孔：用 ring 覆盖成一个小圆，视觉上像黑胶
+            discRing.frame = CGRect(x: discView.frame.midX - 6, y: discView.frame.midY - 6,
+                                    width: 12, height: 12)
+            discRing.layer.cornerRadius = 6
+            // 封面图作唱片纹路
+            if let url = m.coverURL, !url.isEmpty {
+                avatarLoader.onImage = nil  // 头像已加载完，复用会覆盖
+                let coverLoader = ImageLoader()
+                coverLoader.onImage = { [weak self] img in self?.discView.image = img }
+                coverLoader.load(remoteURL: url)
+                objc_setAssociatedObject(self, &Self.coverLoaderKey, coverLoader,
+                                         .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            } else {
+                discView.image = Self.placeholder(letter: m.displayTitle)
+            }
+            FeedMusicPlayer.shared.play(itemID: d.id)
+            startDiscAnimation()
+        }
+    }
+
+    private static var coverLoaderKey: UInt8 = 0
+
+    private func startDiscAnimation() {
+        discView.layer.removeAnimation(forKey: "disc")
+        let a = CABasicAnimation(keyPath: "transform.rotation.z")
+        a.toValue = NSNumber(value: Double.pi * 2)
+        a.duration = 4
+        a.repeatCount = .infinity
+        a.isRemovedOnCompletion = false
+        discView.layer.add(a, forKey: "disc")
+        discAnimation = a
+    }
+
+    private func stopDiscAnimation() {
+        discView.layer.removeAnimation(forKey: "disc")
+        discAnimation = nil
+    }
+
+    @objc private func toggleMusic() {
+        guard music != nil else { return }
+        let player = FeedMusicPlayer.shared
+        if player.isPlaying {
+            player.pause()
+            stopDiscAnimation()
+        } else {
+            player.resume()
+            startDiscAnimation()
+        }
     }
 
     private func meta(from item: ArchiveItem) -> String {
@@ -340,6 +535,19 @@ private final class DouyinFeedPageVC: UIViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         swipeHint.alpha = 0
+        // 滑走就停歌，下一页会播自己的 BGM；不留多个播放器叠着
+        FeedMusicPlayer.shared.stop()
+        stopDiscAnimation()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // 从大图浏览器返回时，若音乐被停了就恢复（同一条作品）
+        if let d = detail, let m = d.music, !(m.title ?? "").isEmpty,
+           !FeedMusicPlayer.shared.isPlaying {
+            FeedMusicPlayer.shared.play(itemID: d.id)
+            startDiscAnimation()
+        }
     }
 
     private func dateText(_ ts: Int) -> String {

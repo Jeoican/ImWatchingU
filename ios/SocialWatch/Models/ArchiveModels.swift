@@ -198,6 +198,40 @@ struct ArchiveComment: Codable, Sendable {
     }
 }
 
+// MARK: - 作品音乐（抖音图文/视频都带 BGM）
+
+/// `/api/archive/item` 返回的 `music`。抖音的图文作品本质是"图片轮播 + 音乐"，
+/// 音乐是作品的一部分，不是外挂——所以 feed 要能自动播它。
+/// 宽松解码：平台有些作品只给歌名没有播放直链，任何字段缺失都不能让详情 decode 失败。
+struct ArchiveMusic: Codable, Sendable {
+    let id: String?
+    let title: String?
+    let author: String?
+    let album: String?
+    let duration: Int?
+    let coverURL: String?
+    let cached: Bool?
+    let bytes: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, author, album, duration
+        case coverURL = "cover_url"
+        case cached, bytes
+    }
+
+    /// feed 转盘上显示的歌名。抖音"创作的原声"这类标题很长，展示时截断到 18 字。
+    var displayTitle: String {
+        let t = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.count <= 18 { return t }
+        return String(t.prefix(18)) + "…"
+    }
+
+    var displayAuthor: String {
+        let a = (author ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return a.isEmpty ? "抖音音乐" : a
+    }
+}
+
 // MARK: - 详情
 
 struct ArchiveDetail: Codable, Sendable {
@@ -223,6 +257,8 @@ struct ArchiveDetail: Codable, Sendable {
     let imagesTotal: Int?
     let video: Bool?
     let media: [ArchiveMedia]
+    /// 作品 BGM（抖音图文也有）。老后端可能没有该字段，宽松兜底为 nil。
+    let music: ArchiveMusic?
     /// 作者互动过的评论（作者回复 / 作者赞过）。老后端可能没有该字段，宽松兜底为空。
     let comments: [ArchiveComment]
     /// 转发原文（微博）。后端字段是 retweet_text，可能缺失。
@@ -248,6 +284,7 @@ struct ArchiveDetail: Codable, Sendable {
         case reposts
         case imagesTotal = "images_total"
         case video, media
+        case music
         case comments
         case retweetText = "retweet_text"
     }
@@ -275,6 +312,7 @@ struct ArchiveDetail: Codable, Sendable {
         imagesTotal = try c.decodeIfPresent(Int.self, forKey: .imagesTotal)
         video = try c.decodeIfPresent(Bool.self, forKey: .video)
         media = try c.decodeIfPresent([ArchiveMedia].self, forKey: .media) ?? []
+        music = try c.decodeIfPresent(ArchiveMusic.self, forKey: .music)
         comments = try c.decodeIfPresent([ArchiveComment].self, forKey: .comments) ?? []
         retweetText = try c.decodeIfPresent(String.self, forKey: .retweetText)
     }

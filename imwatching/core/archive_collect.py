@@ -614,6 +614,8 @@ def probe_deleted(page, conn, target_key: str, platform: str = "weibo",
 _DY_TIER_ORIGIN = "origin"
 _DY_TIER_FALLBACK = "download"
 _DY_REFERER = "https://www.douyin.com/"
+# BGM 单首 0.5–2MB，远小于图片，一轮最多下 40 首（够覆盖单个账号）
+MUSIC_BUDGET_PER_RUN = 40
 
 
 def collect_douyin(page, target_key: str, sec_uid: str, conn,
@@ -626,9 +628,11 @@ def collect_douyin(page, target_key: str, sec_uid: str, conn,
     图文（aweme_type=68）的 images 给全图；视频帖只有封面，标 video=1。
     """
     if budget is None:
-        budget = {"media": MEDIA_BUDGET_PER_RUN}
+        budget = {"media": MEDIA_BUDGET_PER_RUN, "music": MUSIC_BUDGET_PER_RUN}
+    budget.setdefault("music", MUSIC_BUDGET_PER_RUN)
     stats = {"posts": 0, "new": 0, "media_saved": 0, "media_bytes": 0,
-             "hidden": 0, "pages": 0, "media_fallback": 0}
+             "hidden": 0, "pages": 0, "media_fallback": 0,
+             "music_saved": 0, "music_bytes": 0}
 
     seen_ids: set[str] = set()
     cursor = "0"
@@ -771,6 +775,66 @@ def _ingest_douyin_one(page, conn, media_root: Path, budget: dict, stats: dict,
         stats["media_saved"] += 1
         stats["media_bytes"] += saved["bytes"]
         time.sleep(0.2)
+
+    # BGM：抖音图文与视频都带音乐，这是"图文+音乐"作品形态的另一半。
+    # 音乐体积远小于图片（0.5–2MB/首），不占图片预算，单独落盘。
+    _ingest_douyin_music(page, conn, media_root, budget, stats,
+                         target_key, pid, a.get("music") or {}, cid)
+
+
+def _ingest_douyin_music(page, conn, media_root: Path, budget: dict, stats: dict,
+                         target_key: str, post_id: str, music: dict, cid: int) -> None:
+    """下载并登记一条抖音作品的 BGM。
+
+    音乐元信息（标题/作者/专辑/时长）即使没有可用直链也要留档——
+    这样 feed 至少能显示"♫ 歌名 · 作者"，不会因为 CDN 签名过期变成空白。
+    """
+    if not cid:
+        return
+    title = music.get("title") or ""
+    author = music.get("author") or ""
+    if not (title or author or music.get("id")):
+        return  # 该作品没有音乐信息
+
+    urls = [u for u in ((music.get("play_url") or {}).get("url_list") or []) if u]
+    covers = music.get("cover_large") or music.get("cover_medium") or {}
+    cover_urls = [u for u in (covers.get("url_list") or []) if u]
+    mid = str(music.get("mid") or music.get("id") or "")
+    info = {
+        "music_id": mid,
+        "title": title,
+        "author": author,
+        "album": music.get("album") or "",
+        "duration": int(music.get("duration") or 0),
+        "remote_url": urls[0] if urls else None,
+        "cover_url": cover_urls[0] if cover_urls else None,
+    }
+
+    budget_key = "music"
+    already = conn.execute(
+        "SELECT local_path, remote_url FROM content_music WHERE content_id=?", (cid,)
+    ).fetchone()
+    local = Path(already["local_path"]) if already and already["local_path"] else None
+    if local and local.exists():
+        # 文件已在，只刷新元信息和地址，不重下（CDN 签名会变）
+        info["local_path"] = str(local)
+        info["bytes"] = local.stat().st_size
+        arc.upsert_music(conn, cid, info)
+        return
+
+    if urls and budget.get(budget_key, 0) > 0:
+        data, _ = _http_get_first(urls[:2], referer=_DY_REFERER, timeout=25)
+        if data:
+            # save_audio 内部按魔数定扩展名（mp3 / m4a），认不出就返回 None
+            saved = arc.save_audio(media_root, target_key, post_id, data)
+            if saved:
+                info["local_path"] = saved["local_path"]
+                info["bytes"] = saved["bytes"]
+                budget[budget_key] = budget.get(budget_key, 0) - 1
+                stats["music_saved"] += 1
+                stats["music_bytes"] += saved["bytes"]
+
+    arc.upsert_music(conn, cid, info)
 
 
 # ---------------------------------------------------------------- 小红书

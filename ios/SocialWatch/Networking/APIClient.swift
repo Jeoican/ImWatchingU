@@ -276,6 +276,27 @@ final class APIClient {
         return req
     }
 
+    /// 作品 BGM 地址。AVPlayer 需要带 Authorization 头，
+    /// 所以不能直接给 URL，要用 AVURLAsset + `avAssetWith...` 的 header 注入
+    /// （见 DouyinFeedView 里的 `asset(with:)`）。这里只负责拼 URL。
+    func audioURL(itemID: Int) throws -> URL {
+        guard let cred = CredentialStore.shared.load(), cred.isConfigured else {
+            throw APIError.notConfigured
+        }
+        guard let base = cred.normalizedBaseURL else { throw APIError.notConfigured }
+        let p = base.appendingPathComponent("api/archive/audio")
+        guard var comps = URLComponents(url: p, resolvingAgainstBaseURL: false) else {
+            throw APIError.notConfigured
+        }
+        comps.queryItems = [URLQueryItem(name: "id", value: String(itemID))]
+        guard let url = comps.url else { throw APIError.notConfigured }
+        return url
+    }
+
+    static func bearerToken() -> String? {
+        CredentialStore.shared.load()?.token
+    }
+
     // MARK: 鉴权
 
     /// 校验 Token 是否有效（用最小请求探一下）。
