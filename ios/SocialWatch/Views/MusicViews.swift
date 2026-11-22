@@ -355,7 +355,10 @@ struct MiniPlayerBubble: View {
                 )
                 .accessibilityLabel(accessibilityText(song))
                 .fullScreenCover(isPresented: $showFullPlayer) {
+                    // 必须 ignoresSafeArea：否则 UIViewControllerRepresentable 的 view 被
+                    // SwiftUI 框在安全区内，状态栏/Home 指示区露出底层白底（真机上下白边）。
                     FullPlayerUIKit()
+                        .ignoresSafeArea()
                 }
                 .transition(.scale(scale: 0.6).combined(with: .opacity))
                 #if DEBUG
@@ -423,7 +426,10 @@ private struct MiniPlayerBar: View {
                     .frame(height: 2)
                 }
                 .background(Color.white)
-                .fullScreenCover(isPresented: $showFullPlayer) { FullPlayerUIKit() }
+                .fullScreenCover(isPresented: $showFullPlayer) {
+                    FullPlayerUIKit()
+                        .ignoresSafeArea()
+                }
             }
         }
     }
@@ -714,13 +720,17 @@ final class FullPlayerViewController: UIViewController {
         let pageTop = safeTop + headerH
         let pageH = max(160, deckY - pageTop - 6)
 
-        // 封面页
+        // 封面页：封面 + 歌名/歌手/当前歌词作为一个整体，在顶栏与控制区之间**垂直居中**。
+        // 旧版固定 y=20 导致离顶栏太近、离进度条一大段空白；按剩余空间平分上下留白。
         coverPage.frame = CGRect(x: 0, y: pageTop, width: W, height: pageH)
-        let side = min(258, W - 120)
-        coverShadowView.frame = CGRect(x: (W - side) / 2, y: 20, width: side, height: side)
+        let side = min(258, W - 120, pageH * 0.52)
+        // 封面 + 间距18 + 歌名28 + 间距4 + 歌手20 + 间距12 + 歌词20
+        let blockH = side + 102
+        let blockTop = max(8, (pageH - blockH) / 2)
+        coverShadowView.frame = CGRect(x: (W - side) / 2, y: blockTop, width: side, height: side)
         coverImageView.frame = coverShadowView.bounds
-        songLabel.frame = CGRect(x: 24, y: 20 + side + 18, width: W - 48, height: 28)
-        artistLabel.frame = CGRect(x: 24, y: songLabel.frame.maxY + 2, width: W - 48, height: 20)
+        songLabel.frame = CGRect(x: 24, y: blockTop + side + 18, width: W - 48, height: 28)
+        artistLabel.frame = CGRect(x: 24, y: songLabel.frame.maxY + 4, width: W - 48, height: 20)
         previewLabel.frame = CGRect(x: 24, y: artistLabel.frame.maxY + 12, width: W - 48, height: 20)
 
         // 歌词页
