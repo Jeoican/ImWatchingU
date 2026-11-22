@@ -455,13 +455,17 @@ struct FullPlayerView: View {
     /// 主题红：进度、主播放键、歌词高亮统一用色，和 App 其它页保持一致
     private let accent = Color(red: 0.82, green: 0.28, blue: 0.22)
 
+    /// 显式屏幕宽度：iOS 16 上 SwiftUI 的「按理想宽度自动居中」在 sheet+ScrollView 里
+    /// 会把整页内容右移约 17pt（真机实测，iOS 27 模拟器不复现）。
+    /// 所有区块统一用这个宽度 + alignment:.center 精确居中，跨版本行为一致。
+    private var screenW: CGFloat { UIScreen.main.bounds.width }
+    /// 次要文字色：浅背景上 .secondary 发虚，用带不透明度的 primary 更清晰
+    private var muted: Color { .primary.opacity(0.72) }
+
     var body: some View {
         ZStack {
             background
 
-            // 用 ScrollView 承载、子视图按自然高度排布 —— 这是上一版验证过稳定的机制。
-            // 不再用 GeometryReader 分层：在那个 sheet 里外层 VStack 的居中对齐
-            // 会把设了固定 width 的子视图推到右侧（实测内容区/控制组整体右偏）。
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     headerBar
@@ -477,9 +481,10 @@ struct FullPlayerView: View {
                     controlDeck
                         .padding(.top, 8)
                 }
-                .frame(maxWidth: .infinity)
+                // 显式宽度，不让 ScrollView 的宽松宽度提案参与居中计算
+                .frame(width: screenW)
             }
-            .frame(maxWidth: .infinity)
+            .frame(width: screenW)
         }
         .ignoresSafeArea(edges: .bottom)
         // sheet 挂最外层：挂子视图上会让该子视图的按钮不渲染（踩过）
@@ -504,22 +509,24 @@ struct FullPlayerView: View {
             Color(uiColor: .systemBackground)
             if let cover = player.currentSong?.cover, !cover.isEmpty {
                 ProxyImage(url: cover, placeholderText: "")
-                    .scaleEffect(1.35)
-                    .blur(radius: 44)
-                    .opacity(colorScheme == .dark ? 0.32 : 0.26)
+                    .scaleEffect(1.5)
+                    .blur(radius: 36)
+                    // 提高不透明度：底色不再被冲淡成灰白，专辑主色真正透出来
+                    .opacity(colorScheme == .dark ? 0.55 : 0.48)
+                    .saturation(1.5)
             }
-            // 主题色上下渐变，把整页色调拉到专辑氛围
+            // 主题色上下渐变，把整页色调拉到专辑氛围（加深）
             LinearGradient(
-                colors: [accent.opacity(colorScheme == .dark ? 0.22 : 0.14),
-                         Color.clear,
-                         accent.opacity(colorScheme == .dark ? 0.18 : 0.10)],
+                colors: [accent.opacity(colorScheme == .dark ? 0.38 : 0.30),
+                         accent.opacity(colorScheme == .dark ? 0.12 : 0.06),
+                         accent.opacity(colorScheme == .dark ? 0.34 : 0.26)],
                 startPoint: .top, endPoint: .bottom
             )
-            // 遮罩：浅色压白、深色压黑，保证文字/按钮始终可读
+            // 遮罩：浅色压白、深色压黑，保证文字/按钮可读（弱化，避免洗掉取色）
             LinearGradient(
                 colors: colorScheme == .dark
-                    ? [Color.black.opacity(0.10), Color.black.opacity(0.42)]
-                    : [Color.white.opacity(0.10), Color.white.opacity(0.36)],
+                    ? [Color.black.opacity(0.06), Color.black.opacity(0.34)]
+                    : [Color.white.opacity(0.04), Color.white.opacity(0.20)],
                 startPoint: .top, endPoint: .bottom
             )
         }
@@ -529,56 +536,54 @@ struct FullPlayerView: View {
     // MARK: 顶部栏
 
     private var headerBar: some View {
+        // 固定三栏：左 52 + 中 (屏宽-104) + 右 52，显式宽度保证中间标题真正居中，
+        // 两端按钮贴边对称（不用 Spacer —— ScrollView 宽松提案下会推按钮出屏）。
         HStack(spacing: 0) {
-            // frame 必须加在 Button 外部、label 保持纯 Image：
-            // 之前把 frame/background 加在 label(Image) 内部，sheet+毛玻璃下两个按钮整块不渲染。
-            // 不加 Spacer：ScrollView 的宽松宽度提案下，Spacer 会把两端按钮推到屏幕外
-            // （表现就是"中间文字在、两侧按钮消失"）。紧凑居中反而自然接近两端。
             Button { presentationMode.wrappedValue.dismiss() } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 17, weight: .semibold))
             }
-            .frame(width: 44, height: 44)
+            .frame(width: 52, height: 44)
 
             VStack(spacing: 2) {
                 Text(player.isLoading ? "加载中…" : (player.isPlaying ? "正在播放" : "已暂停"))
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(muted)
                 Text(player.playlistTitle.isEmpty ? "正在播放" : player.playlistTitle)
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .frame(maxWidth: 240)
+            .frame(width: screenW - 104)
 
             Button { showQueue = true } label: {
                 Image(systemName: "list.bullet")
                     .font(.system(size: 17, weight: .semibold))
             }
-            .frame(width: 44, height: 44)
+            .frame(width: 52, height: 44)
             .accessibilityLabel("播放队列")
         }
-        .padding(.horizontal, 20)
+        .frame(width: screenW, height: 44, alignment: .center)
         .foregroundColor(.primary)
     }
 
     // MARK: 封面页（点击进歌词）
 
     private var coverPage: some View {
-        let side: CGFloat = 300
+        // 封面从 300 缩到 258：真机上原尺寸占屏宽 77% 偏大、重心过高，
+        // 缩小后上下留白更均衡，给下方控制区留出呼吸空间。
+        let side: CGFloat = min(258, screenW - 120)
         return VStack(spacing: 14) {
-            Spacer(minLength: 0)
-
             Button { withAnimation(.easeInOut(duration: 0.22)) { showingLyrics = true } } label: {
                 ZStack {
                     // 封面背后的柔光，令大封面从背景里"浮"出来
                     Circle()
-                        .fill(accent.opacity(colorScheme == .dark ? 0.28 : 0.20))
+                        .fill(accent.opacity(colorScheme == .dark ? 0.34 : 0.26))
                         .frame(width: side * 1.12, height: side * 1.12)
                         .blur(radius: 26)
                     if let song = player.currentSong {
                         AlbumArt(url: song.cover, size: side, corner: 18)
-                            .shadow(color: .black.opacity(0.24), radius: 22, x: 0, y: 12)
+                            .shadow(color: .black.opacity(0.30), radius: 20, x: 0, y: 10)
                     } else {
                         AlbumArt(url: nil, size: side, corner: 18)
                     }
@@ -592,8 +597,8 @@ struct FullPlayerView: View {
                     .lineLimit(1)
                     .multilineTextAlignment(.center)
                 Text(player.currentSong?.artists ?? "未知歌手")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(muted)
                     .lineLimit(1)
                     .multilineTextAlignment(.center)
             }
@@ -604,15 +609,13 @@ struct FullPlayerView: View {
                player.currentLyricIndex >= 0,
                player.currentLyricIndex < player.lyrics.count {
                 Text(player.lyrics[player.currentLyricIndex].text)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(muted)
                     .lineLimit(1)
                     .padding(.horizontal, 40)
             }
-
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 24)
+        .frame(width: screenW, height: 400, alignment: .center)
     }
 
     // MARK: 歌词页
@@ -628,18 +631,17 @@ struct FullPlayerView: View {
                     Text("收起歌词")
                         .font(.system(size: 12, weight: .medium))
                 }
-                .foregroundColor(.secondary)
+                .foregroundColor(muted)
             }
             .buttonStyle(.plain)
-            .frame(maxWidth: .infinity)
+            .frame(width: screenW, height: 28, alignment: .center)
             .padding(.top, 8)
             .padding(.bottom, 4)
 
             LyricsView(player: player)
-                .frame(height: 320)
+                .frame(width: screenW - 48, height: 372)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 24)
+        .frame(width: screenW, alignment: .center)
     }
 
     // MARK: 底部控制区
@@ -647,20 +649,17 @@ struct FullPlayerView: View {
     private var controlDeck: some View {
         VStack(spacing: 0) {
             seekBar
-                .padding(.horizontal, 24)
                 .padding(.top, 4)
 
-            // 主控制组单独居中（不与其它视图共享 HStack），避免 Spacer 挤压错位。
             mainControls
-                .frame(maxWidth: .infinity)
                 .padding(.top, 4)
 
-            // 次要操作行：模式 + 队列，各自带文字，与上一版验证过的机制一致。
+            // 次要操作行：模式 + 队列，各自带文字。显式宽度居中。
             HStack(spacing: 56) {
                 modeButton
                 queueButton
             }
-            .frame(maxWidth: .infinity)
+            .frame(width: screenW, height: 54, alignment: .center)
             .padding(.top, 6)
 
             if let msg = player.errorMessage {
@@ -673,21 +672,22 @@ struct FullPlayerView: View {
                     .padding(.top, 2)
             }
         }
+        .frame(width: screenW, alignment: .center)
     }
 
     /// 自绘进度条（不用系统 Slider）：轨道 + 主题色填充 + 圆点 + 拖拽 seek。
     /// 关键：不用 GeometryReader —— 它在 ScrollView 里会让整行塌缩为 0 而消失（踩过）。
     /// 用固定内容宽度按比例绘制，各机型差异可接受。
     private var seekBar: some View {
-        let trackW: CGFloat = 320
+        let trackW: CGFloat = screenW - 48
         let p = CGFloat(min(max(player.progress, 0), 1))
         return VStack(spacing: 6) {
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.16)).frame(width: trackW, height: 4)
-                Capsule().fill(accent).frame(width: max(0, trackW * p), height: 4)
+                Capsule().fill(Color.primary.opacity(0.28)).frame(width: trackW, height: 5)
+                Capsule().fill(accent).frame(width: max(0, trackW * p), height: 5)
                 Circle().fill(accent)
-                    .frame(width: 12, height: 12)
-                    .offset(x: trackW * p - 6)
+                    .frame(width: 13, height: 13)
+                    .offset(x: trackW * p - 6.5)
             }
             .frame(width: trackW, height: 16)
             .contentShape(Rectangle())
@@ -701,18 +701,18 @@ struct FullPlayerView: View {
                 Spacer(minLength: 0)
                 Text(formatTime(player.duration))
             }
-            .font(.system(size: 10, design: .monospaced))
-            .foregroundColor(.secondary)
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundColor(muted)
             .frame(width: trackW)
         }
-        .frame(maxWidth: .infinity)
+        .frame(width: screenW, height: 44, alignment: .center)
     }
 
     private var mainControls: some View {
-        HStack(spacing: 30) {
+        HStack(spacing: 34) {
             Button { player.previous() } label: {
-                Image(systemName: "backward.fill")
-                    .font(.system(size: 24))
+                Image(systemName: "backward")
+                    .font(.system(size: 26, weight: .semibold))
                     .frame(width: 50, height: 50)
             }
             Button { player.togglePlayPause() } label: {
@@ -731,11 +731,13 @@ struct FullPlayerView: View {
             }
             .buttonStyle(.plain)
             Button { player.next() } label: {
-                Image(systemName: "forward.fill")
-                    .font(.system(size: 24))
+                Image(systemName: "forward")
+                    .font(.system(size: 26, weight: .semibold))
                     .frame(width: 50, height: 50)
             }
         }
+        // 显式宽度居中，主播放键落在屏幕正中
+        .frame(width: screenW, height: 66, alignment: .center)
         .foregroundColor(.primary)
     }
 
@@ -746,9 +748,9 @@ struct FullPlayerView: View {
                 Image(systemName: player.playMode.icon)
                     .font(.system(size: 17, weight: .medium))
                 Text(player.playMode.title)
-                    .font(.system(size: 9))
+                    .font(.system(size: 10, weight: .medium))
             }
-            .foregroundColor(player.playMode == .sequential ? .secondary : accent)
+            .foregroundColor(player.playMode == .sequential ? muted : accent)
             .frame(width: 54, height: 54)
         }
         .buttonStyle(.plain)
@@ -761,9 +763,9 @@ struct FullPlayerView: View {
                 Image(systemName: "list.bullet")
                     .font(.system(size: 17, weight: .medium))
                 Text("队列")
-                    .font(.system(size: 9))
+                    .font(.system(size: 10, weight: .medium))
             }
-            .foregroundColor(.secondary)
+            .foregroundColor(muted)
             .frame(width: 54, height: 54)
         }
         .buttonStyle(.plain)
