@@ -571,13 +571,18 @@ struct ImageViewer: View {
 
 /// 可缩放的单张图。手势分工：
 ///   · 未缩放 → 纵向拖拽 = 下滑退出（图片跟手、缩小、背景淡出）
-///   · 已缩放 → 拖拽 = 平移图片，下滑退出暂时让位（否则放大的图没法看局部）
-///   · 单击 = 退出，双击 = 1x ↔ 2x
+///   · 未缩放 → 横向拖动 = 翻页（交给 TabView，这里绝不拦截）
+///   · 已缩放 → 拖拽 = 平移图片（UIScrollView 原生接管）
+///   · 单击 = 退出，双击 = 定点放大/还原
 ///
-/// 为什么拖拽用 `simultaneousGesture` 而不是 `gesture`：
-/// 独占的 DragGesture 会把横向拖动一起吃掉，TabView 就翻不了页了。
-/// simultaneous 让 ScrollView 的翻页和我们的纵向拖拽同时识别，
-/// 靠「纵向位移大于横向」这个门槛把两者分开。
+/// 为什么改用 UIScrollView（对应两处用户反馈）：
+///   1. 糊 —— 之前用 `scaleEffect` 缩放，SwiftUI 只把「按布局尺寸渲染好的
+///      位图」做 GPU 放大，不会按新尺寸重绘，放大即马赛克。哪怕原图已加载
+///      （4126px），放大后仍是 900px 底子的糊。UIScrollView 的原生 zoom
+///      是重新采样 CGImage 的，放大到几倍都清晰。
+///   2. 左右翻页失效 —— 之前为「下滑退出」挂了 DragGesture，它把横向拖动
+///      一并吃掉，TabView 就翻不了页。UIScrollView 在 1x 时内容恰好铺满、
+///      没有可滚动区域，横向拖动自然交还 TabView。
 private struct ZoomableImage: View {
     let itemID: Int
     let media: ArchiveMedia
@@ -591,41 +596,41 @@ private struct ZoomableImage: View {
     /// 原图：3–7MB，慢一点，到位后替换预览
     @StateObject private var full = ImageLoader()
 
-    @State private var scale: CGFloat = 1
-    @State private var lastScale: CGFloat = 1
-    @State private var offset: CGSize = .zero
-    @State private var lastOffset: CGSize = .zero
     @State private var dragY: CGFloat = 0
 
-    private var isZoomed: Bool { scale > 1.01 }
     private var displayImage: UIImage? { full.image ?? preview.image }
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 if let img = displayImage {
-                    Image(uiImage: img)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                } else {
-                    ZStack {
-                        // 黑底上不要骨架色块，只留一个小转圈
-                        ProgressView().tint(.white)
-                    }
+                    ZoomableScrollView(
+                        image: img,
+                        onSingleTap: { onDismiss() },
+                        onDismissChanged: { dy in
+                            dragY = max(dy, 0)
+                            dismissProgress = min(max(dy / 400, 0), 1)
+                        },
+                        onDismissEnd: { dy, velY in
+                            if dy > 120 || velY > 1200 {
+                                onDismiss()
+                            } else {
+                                withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+                                    dragY = 0
+                                    dismissProgress = 0
+                                }
+                            }
+                        }
+                    )
                     .frame(width: geo.size.width, height: geo.size.height)
+                    // 下滑时整体缩小下移，配合外层背景淡出
+                    .scaleEffect(1 - min(max(dragY, 0) / 900, 0.22))
+                    .offset(y: dragY)
+                } else {
+                    ProgressView().tint(.white)
+                        .frame(width: geo.size.width, height: geo.size.height)
                 }
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            // 下滑时同步缩小，最像系统相册的「往下甩掉」
-            .scaleEffect(isZoomed ? scale : scale * (1 - min(max(dragY, 0) / 900, 0.22)))
-            .offset(x: isZoomed ? offset.width : 0,
-                    y: isZoomed ? offset.height : dragY)
-            .gesture(magnification)
-            .simultaneousGesture(panOrDismiss)
-            .onTapGesture(count: 2) { toggleZoom() }
-            .onTapGesture { onDismiss() }
-            .contentShape(Rectangle())
         }
         .ignoresSafeArea()
         .onAppear { load() }
@@ -643,61 +648,184 @@ private struct ZoomableImage: View {
         preview.load(itemID: itemID, seq: media.seq, tier: .detail)
         full.load(itemID: itemID, seq: media.seq, tier: .original)
     }
+}
 
-    private var magnification: some Gesture {
-        MagnificationGesture()
-            .onChanged { v in
-                scale = min(max(lastScale * v, 1), 4)
-            }
-            .onEnded { _ in
-                lastScale = scale
-                if scale <= 1.02 {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        scale = 1; lastScale = 1
-                        offset = .zero; lastOffset = .zero
-                    }
-                }
-            }
+/// 布局回调钩子：在 layoutSubviews 里校正 imageView 的 frame。
+/// 用子类而不是在 makeUIView 里写死 frame —— 那时 bounds 还是 .zero。
+private final class ZoomScrollView: UIScrollView {
+    var onLayout: (() -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
+    }
+}
+
+/// 基于 UIScrollView 的原生缩放容器。
+///
+/// 把「缩放 + 平移 + 双击放大」这些复合手势交给 UIKit 里打磨了几十年的
+/// UIScrollView，而不是用 SwiftUI 的 MagnificationGesture + DragGesture 拼
+/// —— 后者做不到无缝的缩放↔平移切换，也做不到放大后按新尺寸重绘。
+private struct ZoomableScrollView: UIViewRepresentable {
+    let image: UIImage
+    var onSingleTap: () -> Void
+    var onDismissChanged: (CGFloat) -> Void
+    var onDismissEnd: (CGFloat, CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onSingleTap: onSingleTap,
+                    onDismissChanged: onDismissChanged,
+                    onDismissEnd: onDismissEnd)
     }
 
-    private var panOrDismiss: some Gesture {
-        DragGesture(minimumDistance: 6)
-            .onChanged { v in
-                if isZoomed {
-                    offset = CGSize(width: lastOffset.width + v.translation.width,
-                                    height: lastOffset.height + v.translation.height)
-                } else {
-                    // 横向位移更大 → 用户想翻页，把这一页的退出手势让出去
-                    guard abs(v.translation.height) > abs(v.translation.width) else { return }
-                    dragY = v.translation.height
-                    dismissProgress = min(max(v.translation.height / 400, 0), 1)
-                }
-            }
-            .onEnded { v in
-                if isZoomed {
-                    lastOffset = offset
-                } else {
-                    let should = dragY > 120 || v.predictedEndTranslation.height > 300
-                    if should {
-                        onDismiss()
-                    } else {
-                        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
-                            dragY = 0
-                            dismissProgress = 0
-                        }
-                    }
-                }
-            }
+    func makeUIView(context: Context) -> ZoomScrollView {
+        let sv = ZoomScrollView()
+        sv.backgroundColor = .black
+        sv.delegate = context.coordinator
+        sv.minimumZoomScale = 1.0
+        sv.maximumZoomScale = 4.0
+        sv.showsVerticalScrollIndicator = false
+        sv.showsHorizontalScrollIndicator = false
+        sv.bouncesZoom = true
+        sv.contentInsetAdjustmentBehavior = .never
+        sv.decelerationRate = .fast
+
+        let iv = UIImageView(image: image)
+        iv.contentMode = .scaleAspectFit
+        iv.backgroundColor = .black
+        iv.isUserInteractionEnabled = true
+        sv.addSubview(iv)
+
+        // 双击：定点放大
+        let doubleTap = UITapGestureRecognizer(target: context.coordinator,
+                                               action: #selector(Coordinator.handleDoubleTap(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        sv.addGestureRecognizer(doubleTap)
+
+        // 单击：退出。require 双击失败后才触发，否则双击会被误判成单击退出。
+        let singleTap = UITapGestureRecognizer(target: context.coordinator,
+                                               action: #selector(Coordinator.handleSingleTap(_:)))
+        singleTap.numberOfTapsRequired = 1
+        singleTap.require(toFail: doubleTap)
+        sv.addGestureRecognizer(singleTap)
+
+        // 下滑退出：纵向拖拽
+        let pan = UIPanGestureRecognizer(target: context.coordinator,
+                                         action: #selector(Coordinator.handleDismissPan(_:)))
+        pan.delegate = context.coordinator
+        sv.addGestureRecognizer(pan)
+
+        context.coordinator.scrollView = sv
+        context.coordinator.imageView = iv
+        context.coordinator.dismissPan = pan
+        sv.onLayout = { [weak coordinator = context.coordinator] in
+            coordinator?.relayout()
+        }
+        return sv
     }
 
-    private func toggleZoom() {
-        withAnimation(.easeInOut(duration: 0.22)) {
-            if isZoomed {
-                scale = 1; lastScale = 1
-                offset = .zero; lastOffset = .zero
+    func updateUIView(_ sv: ZoomScrollView, context: Context) {
+        context.coordinator.onSingleTap = onSingleTap
+        context.coordinator.onDismissChanged = onDismissChanged
+        context.coordinator.onDismissEnd = onDismissEnd
+        // 换图（预览 → 原图）：更新 imageView 并复位缩放
+        if context.coordinator.imageView?.image !== image {
+            context.coordinator.imageView?.image = image
+            sv.setZoomScale(1.0, animated: false)
+        }
+        context.coordinator.relayout()
+    }
+
+    final class Coordinator: NSObject, UIScrollViewDelegate, UIGestureRecognizerDelegate {
+        var onSingleTap: () -> Void
+        var onDismissChanged: (CGFloat) -> Void
+        var onDismissEnd: (CGFloat, CGFloat) -> Void
+
+        weak var scrollView: ZoomScrollView?
+        weak var imageView: UIImageView?
+        weak var dismissPan: UIPanGestureRecognizer?
+
+        init(onSingleTap: @escaping () -> Void,
+             onDismissChanged: @escaping (CGFloat) -> Void,
+             onDismissEnd: @escaping (CGFloat, CGFloat) -> Void) {
+            self.onSingleTap = onSingleTap
+            self.onDismissChanged = onDismissChanged
+            self.onDismissEnd = onDismissEnd
+        }
+
+        /// 校正 imageView 尺寸并居中。1x 时 imageView 恰好铺满 scroll view，
+        /// 此时没有可滚动内容，横向拖动才会交还给 TabView 翻页。
+        func relayout() {
+            guard let sv = scrollView, let iv = imageView else { return }
+            guard sv.bounds.width > 0, sv.bounds.height > 0 else { return }
+            if iv.frame.size != sv.bounds.size {
+                iv.frame = CGRect(origin: .zero, size: sv.bounds.size)
+                sv.contentSize = sv.bounds.size
+            }
+            centerImage()
+        }
+
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+            imageView
+        }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            centerImage()
+        }
+
+        func centerImage() {
+            guard let sv = scrollView, let iv = imageView else { return }
+            let ox = max((sv.bounds.width - sv.contentSize.width) / 2, 0)
+            let oy = max((sv.bounds.height - sv.contentSize.height) / 2, 0)
+            iv.center = CGPoint(x: sv.contentSize.width / 2 + ox,
+                                y: sv.contentSize.height / 2 + oy)
+        }
+
+        @objc func handleDoubleTap(_ g: UITapGestureRecognizer) {
+            guard let sv = scrollView else { return }
+            if sv.zoomScale > 1.01 {
+                sv.setZoomScale(1.0, animated: true)
             } else {
-                scale = 2.2; lastScale = 2.2
+                let p = g.location(in: imageView)
+                let side: CGFloat = 120
+                sv.zoom(to: CGRect(x: p.x - side / 2, y: p.y - side / 2,
+                                   width: side, height: side), animated: true)
             }
+        }
+
+        @objc func handleSingleTap(_ g: UITapGestureRecognizer) {
+            onSingleTap()
+        }
+
+        @objc func handleDismissPan(_ pan: UIPanGestureRecognizer) {
+            let t = pan.translation(in: pan.view)
+            switch pan.state {
+            case .changed:
+                onDismissChanged(t.y)
+            case .ended:
+                onDismissEnd(t.y, pan.velocity(in: pan.view).y)
+            case .cancelled, .failed:
+                onDismissEnd(t.y, 0)
+            default:
+                break
+            }
+        }
+
+        // 只有「未缩放 + 纵向占主导」才让下滑退出手势开始。
+        // 横向拖动不拦 → TabView 翻页；已缩放时不拦 → UIScrollView 平移。
+        func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+            if g === dismissPan {
+                let zoomed = (scrollView?.zoomScale ?? 1) > 1.01
+                if zoomed { return false }
+                let v = (g as? UIPanGestureRecognizer)?.velocity(in: g.view) ?? .zero
+                return abs(v.y) > abs(v.x)
+            }
+            return true
+        }
+
+        func gestureRecognizer(_ g: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
         }
     }
 }
@@ -711,7 +839,21 @@ enum PhotoSaver {
     struct Denied: LocalizedError {
         var errorDescription: String? { "无相册写入权限" }
     }
+    struct EncodeFailed: LocalizedError {
+        var errorDescription: String? { "图片编码失败" }
+    }
 
+    /// 保存到系统相册。
+    ///
+    /// 为什么不用 `creationRequestForAsset(from: UIImage)`：
+    /// 对「网络下载 + 解码」来的大图，Photos 的资产校验经常报
+    /// 3302（invalidResource，即「资产资源校验失败」），用户看到的就是
+    /// 「保存失败：未能完成操作」。原因是直接把内存里的 UIImage 丢给
+    /// Photos，其底层编码/校验对这类来源不稳。
+    ///
+    /// 可靠路径是系统推荐的做法：先编码成标准 JPEG 落盘（临时文件），
+    /// 再 `addResource(with: .photo, fileURL:)` 交给 Photos，由它自己
+    /// 从文件读，避开内存位图那套校验。文件扩展名必须正确，否则同样 3302。
     static func save(_ image: UIImage,
                      completion: @escaping (Result<Void, Error>) -> Void) {
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
@@ -719,9 +861,27 @@ enum PhotoSaver {
                 DispatchQueue.main.async { completion(.failure(Denied())) }
                 return
             }
+
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sw_save_\(UUID().uuidString).jpg")
+            do {
+                // 先 JPEG（有损但兼容性最好），编不出来退回 PNG。
+                guard let data = image.jpegData(compressionQuality: 1.0)
+                        ?? image.pngData() else {
+                    DispatchQueue.main.async { completion(.failure(EncodeFailed())) }
+                    return
+                }
+                try data.write(to: tmp, options: .atomic)
+            } catch {
+                DispatchQueue.main.async { completion(.failure(error)) }
+                return
+            }
+
             PHPhotoLibrary.shared().performChanges({
-                PHAssetChangeRequest.creationRequestForAsset(from: image)
+                let req = PHAssetCreationRequest.forAsset()
+                req.addResource(with: .photo, fileURL: tmp, options: nil)
             }, completionHandler: { ok, err in
+                try? FileManager.default.removeItem(at: tmp)  // 用完即删
                 DispatchQueue.main.async {
                     if ok { completion(.success(())) }
                     else { completion(.failure(err ?? Denied())) }

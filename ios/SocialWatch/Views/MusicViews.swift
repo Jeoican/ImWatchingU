@@ -144,9 +144,10 @@ struct SongListView: View {
                                            maxAge: 30 * 24 * 3600) {
                 songs = cached
             }
-            if songs.isEmpty {
-                _ = await loadSongs()
-            }
+            // 始终后台回源刷新，不要只在缓存为空时才拉：
+            // 老版本缓存里没有 cover/duration 字段，命中旧缓存会让封面永远不显示。
+            // 先展示缓存（秒开），再静默刷新补上新字段。
+            _ = await loadSongs()
             #if DEBUG
             // 自动化验证：SW_DEBUG_PLAY=1 直接起播。
             // 必须放在 if 外面 —— 命中缓存时不会进上面的分支，
