@@ -623,8 +623,12 @@ private struct ZoomableImage: View {
                         }
                     )
                     .frame(width: geo.size.width, height: geo.size.height)
-                    // 下滑时整体缩小下移，配合外层背景淡出
-                    .scaleEffect(1 - min(max(dragY, 0) / 900, 0.22))
+                    // 下滑时整体缩小下移，配合外层背景淡出。
+                    // 用 `offset` + `scaleEffect` 会同时影响手势坐标系 ——
+                    // 图片被缩小时，UIScrollView 收到的触摸仍然按原坐标系算，
+                    // 下滑越拖越"迟钝"。所以这里只在有下滑位移时才加动效，
+                    // 并且用 anchor 为中心缩放，让跟手感一致。
+                    .scaleEffect(1 - min(max(dragY, 0) / 900, 0.22), anchor: .center)
                     .offset(y: dragY)
                 } else {
                     ProgressView().tint(.white)
@@ -666,6 +670,17 @@ private final class ZoomScrollView: UIScrollView {
 /// 把「缩放 + 平移 + 双击放大」这些复合手势交给 UIKit 里打磨了几十年的
 /// UIScrollView，而不是用 SwiftUI 的 MagnificationGesture + DragGesture 拼
 /// —— 后者做不到无缝的缩放↔平移切换，也做不到放大后按新尺寸重绘。
+///
+/// 「捏合/双击放大抖一下就弹回 1x」的根因（本轮修复）
+/// ------------------------------------------------
+/// 上一版在 `layoutSubviews` 里无条件执行 `iv.frame = sv.bounds.size`
+/// 并把 `contentSize` 也设成 `bounds.size`。而这两者正是 UIScrollView
+/// 缩放机制的底座：缩放时它自己会按 zoomScale 去改 zoomView.frame 和
+/// contentSize，并连发 layoutSubviews。我们紧接着把它们写回 1x 的值，
+/// 等于每次都把用户刚捏出来的结果当场抹平 —— 表现就是「抖一下、恢复原状」。
+///
+/// 正确做法是：只在 zoomScale ≈ 1 时才维护基准布局；
+/// 缩放中/已放大时只做居中，绝不碰 frame 与 contentSize。
 private struct ZoomableScrollView: UIViewRepresentable {
     let image: UIImage
     var onSingleTap: () -> Void
@@ -687,8 +702,10 @@ private struct ZoomableScrollView: UIViewRepresentable {
         sv.showsVerticalScrollIndicator = false
         sv.showsHorizontalScrollIndicator = false
         sv.bouncesZoom = true
+        sv.bounces = false            // 1x 时不要回弹，否则会把「下滑退出」抢走
         sv.contentInsetAdjustmentBehavior = .never
         sv.decelerationRate = .fast
+        sv.clipsToBounds = true
 
         let iv = UIImageView(image: image)
         iv.contentMode = .scaleAspectFit
@@ -721,6 +738,26 @@ private struct ZoomableScrollView: UIViewRepresentable {
         sv.onLayout = { [weak coordinator = context.coordinator] in
             coordinator?.relayout()
         }
+        #if DEBUG
+        // 自动化验证通道：模拟器无法注入捏合/双击，这里用代码直接置一个缩放，
+        // 用于核对「缩放后不会被 layoutSubviews 抹回 1x」。Release 不含。
+        if let v = ProcessInfo.processInfo.environment["SW_DEBUG_ZOOM"],
+           let scale = Double(v) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak sv] in
+                sv?.setZoomScale(CGFloat(max(1.01, scale)), animated: false)
+                // 再验证缩回：先放大、等 2 秒，再缩回 1x 并截图，确认能干净还原
+                if ProcessInfo.processInfo.environment["SW_DEBUG_ZOOM_BACK"] == "1" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak sv] in
+                        sv?.setZoomScale(1.0, animated: true)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            NSLog("[SW] zoomBack scale=%.4f contentSize=%@",
+                                  sv?.zoomScale ?? 0, NSCoder.string(for: sv?.contentSize ?? .zero))
+                        }
+                    }
+                }
+            }
+        }
+        #endif
         return sv
     }
 
@@ -728,10 +765,11 @@ private struct ZoomableScrollView: UIViewRepresentable {
         context.coordinator.onSingleTap = onSingleTap
         context.coordinator.onDismissChanged = onDismissChanged
         context.coordinator.onDismissEnd = onDismissEnd
-        // 换图（预览 → 原图）：更新 imageView 并复位缩放
+        // 换图（预览 → 原图）：只换位图，**不动 zoomScale**。
+        // 两张图的宽高比一致，所以 1x 基准尺寸完全相同，视觉上零跳动；
+        // 用户此刻可能正捏在 2x 上看细节，复位会让人觉得"又被弹回去了"。
         if context.coordinator.imageView?.image !== image {
             context.coordinator.imageView?.image = image
-            sv.setZoomScale(1.0, animated: false)
         }
         context.coordinator.relayout()
     }
@@ -753,16 +791,58 @@ private struct ZoomableScrollView: UIViewRepresentable {
             self.onDismissEnd = onDismissEnd
         }
 
-        /// 校正 imageView 尺寸并居中。1x 时 imageView 恰好铺满 scroll view，
-        /// 此时没有可滚动内容，横向拖动才会交还给 TabView 翻页。
+        /// 维护 1x 基准布局：imageView 按图片比例 aspect-fit 到屏幕，并居中。
+        ///
+        /// 关键守卫：`isZooming || zoomScale > 1` 时直接返回。
+        /// 这是本轮「放大后自动弹回」的修复点 —— 缩放期间 frame 与 contentSize
+        /// 归 UIScrollView 管，我们再写一遍就是破坏它的状态机。
         func relayout() {
             guard let sv = scrollView, let iv = imageView else { return }
             guard sv.bounds.width > 0, sv.bounds.height > 0 else { return }
-            if iv.frame.size != sv.bounds.size {
-                iv.frame = CGRect(origin: .zero, size: sv.bounds.size)
-                sv.contentSize = sv.bounds.size
+            if sv.isZooming || sv.zoomScale > 1.001 {
+                centerImage()
+                syncPanAvailability()
+                return
+            }
+            guard let img = iv.image else { return }
+            let fitted = Self.fitSize(imageSize: img.size, in: sv.bounds.size)
+            if iv.frame.size != fitted {
+                iv.frame = CGRect(origin: .zero, size: fitted)
+            }
+            if sv.contentSize != fitted {
+                sv.contentSize = fitted
+                sv.contentOffset = .zero
             }
             centerImage()
+            syncPanAvailability()
+        }
+
+        /// 1x 时关掉 scroll view 自己的 pan，只留捏合手势。
+        ///
+        /// 为什么必须这么做（上一版左右翻页失效的根因）：
+        /// 1x 时 contentSize == bounds，本来「没东西可滚」，但 UIScrollView
+        /// 的 pan 手势**依然会开始**（然后原地不动）。它一旦开始，就吃掉了
+        /// 这次触摸序列，外层 TabView 的翻页手势收不到任何拖动 ——
+        /// 表现就是「左右滑不动，换不了张」。
+        /// 只关 `panGestureRecognizer` 而不是 `isScrollEnabled`：
+        /// 后者会连捏合一起禁掉（那就彻底不能缩放了）。
+        /// 放大后（zoomScale > 1）再把 pan 还回来，用于平移查看细节。
+        private func syncPanAvailability() {
+            guard let sv = scrollView else { return }
+            let zoomed = sv.zoomScale > 1.001
+            let shouldEnable = zoomed
+            if sv.panGestureRecognizer.isEnabled != shouldEnable {
+                sv.panGestureRecognizer.isEnabled = shouldEnable
+            }
+        }
+
+        /// aspect-fit：整张图完整可见，不裁切（用户明确不要被切掉）。
+        static func fitSize(imageSize: CGSize, in bounds: CGSize) -> CGSize {
+            guard imageSize.width > 0, imageSize.height > 0,
+                  bounds.width > 0, bounds.height > 0 else { return bounds }
+            let scale = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
+            return CGSize(width: floor(imageSize.width * scale * 100) / 100,
+                          height: floor(imageSize.height * scale * 100) / 100)
         }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? {
@@ -771,10 +851,30 @@ private struct ZoomableScrollView: UIViewRepresentable {
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             centerImage()
+            // 缩放过程中 zoomScale 变化，pan 的可用性要跟着切：
+            // 放大后允许平移，缩回 1x 立刻关掉（把横向拖动还给 TabView 翻页）
+            syncPanAvailability()
         }
 
+        /// 内容小于视口时靠 center 补偏移把它摆正；大于视口时 center 落在
+        /// contentSize 正中，交给 contentOffset 去滚动。
+        ///
+        /// ⚠️ 只在 1x 时直接写 `iv.center`。
+        /// 放大后绝不能碰 zoomView 的 frame/center —— 那时它有 transform，
+        /// 改 frame 会与 UIScrollView 的缩放状态机互相拉扯（表现：抖一下弹回）。
+        /// 放大态的居中交给 `contentInset`（UIScrollView 的标准做法）。
         func centerImage() {
             guard let sv = scrollView, let iv = imageView else { return }
+            let zoomed = sv.zoomScale > 1.001
+            if zoomed {
+                // 内容比视口小时用 inset 居中，比视口大时自然可以滚动，无需操作
+                let dx = max((sv.bounds.width - sv.contentSize.width) / 2, 0)
+                let dy = max((sv.bounds.height - sv.contentSize.height) / 2, 0)
+                let inset = UIEdgeInsets(top: dy, left: dx, bottom: dy, right: dx)
+                if sv.contentInset != inset { sv.contentInset = inset }
+                return
+            }
+            if sv.contentInset != .zero { sv.contentInset = .zero }
             let ox = max((sv.bounds.width - sv.contentSize.width) / 2, 0)
             let oy = max((sv.bounds.height - sv.contentSize.height) / 2, 0)
             iv.center = CGPoint(x: sv.contentSize.width / 2 + ox,
@@ -782,15 +882,24 @@ private struct ZoomableScrollView: UIViewRepresentable {
         }
 
         @objc func handleDoubleTap(_ g: UITapGestureRecognizer) {
-            guard let sv = scrollView else { return }
+            guard let sv = scrollView, let iv = imageView else { return }
             if sv.zoomScale > 1.01 {
+                // 缩回 1x：动画结束后手动补一次基准布局。
+                // 动画期间 layoutSubviews 会不断触发，但被 zoomScale>1 的守卫挡住，
+                // 所以不会中途复位、也就不会出现「抖一下」。
                 sv.setZoomScale(1.0, animated: true)
-            } else {
-                let p = g.location(in: imageView)
-                let side: CGFloat = 120
-                sv.zoom(to: CGRect(x: p.x - side / 2, y: p.y - side / 2,
-                                   width: side, height: side), animated: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                    self?.relayout()
+                }
+                return
             }
+            // 以点击点为圆心放大：矩形宽高 = 视口的 1/2.2，
+            // zoom(to:) 会让这个矩形铺满视口，即等效放大约 2.2 倍。
+            let p = g.location(in: iv)
+            let w = sv.bounds.width / 2.2
+            let h = sv.bounds.height / 2.2
+            let rect = CGRect(x: p.x - w / 2, y: p.y - h / 2, width: w, height: h)
+            sv.zoom(to: rect, animated: true)
         }
 
         @objc func handleSingleTap(_ g: UITapGestureRecognizer) {
@@ -798,6 +907,16 @@ private struct ZoomableScrollView: UIViewRepresentable {
         }
 
         @objc func handleDismissPan(_ pan: UIPanGestureRecognizer) {
+            // 捏合过程中若 dismissPan 已经启动（先竖拖再落第二根手指），
+            // 缩放一开始 zoomScale 就 >1，此时必须立刻停止把图片往下推 ——
+            // 否则「捏着捏着图就滑走了」，也就是用户看到的「放大时抖动」。
+            if let sv = scrollView, sv.isZooming || sv.zoomScale > 1.001 {
+                if pan.state == .changed { return }
+                if pan.state == .ended || pan.state == .cancelled || pan.state == .failed {
+                    onDismissEnd(0, 0)
+                }
+                return
+            }
             let t = pan.translation(in: pan.view)
             switch pan.state {
             case .changed:
@@ -815,17 +934,25 @@ private struct ZoomableScrollView: UIViewRepresentable {
         // 横向拖动不拦 → TabView 翻页；已缩放时不拦 → UIScrollView 平移。
         func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
             if g === dismissPan {
-                let zoomed = (scrollView?.zoomScale ?? 1) > 1.01
+                let zoomed = (scrollView?.zoomScale ?? 1) > 1.001
                 if zoomed { return false }
+                // UIScrollView 自己正在滚动（放大后惯性滑动）时也不要抢
+                if let sv = scrollView, sv.isDragging || sv.isDecelerating { return false }
                 let v = (g as? UIPanGestureRecognizer)?.velocity(in: g.view) ?? .zero
                 return abs(v.y) > abs(v.x)
             }
             return true
         }
 
+        // 捏合必须和 UIScrollView 自己的手势并行，否则会被 dismissPan 挤掉；
+        // 但 dismissPan 已用 shouldBegin 拦住了缩放态，不会冲突。
         func gestureRecognizer(_ g: UIGestureRecognizer,
                                shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-            true
+            if g === dismissPan || other === dismissPan {
+                // 下滑退出时不要和缩放并行，避免边缩边平移的错乱
+                return other is UIPinchGestureRecognizer || g is UIPinchGestureRecognizer
+            }
+            return true
         }
     }
 }

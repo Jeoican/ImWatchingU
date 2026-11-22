@@ -57,8 +57,16 @@ final class AudioPlayer: ObservableObject {
     private var endObserver: NSObjectProtocol?
     private var audioSessionConfigured = false
 
+    /// 已备好的锁屏/灵动岛封面，按 song_id 缓存。
+    /// 封面同一首歌不会变，重下一遍纯属浪费；而且「正在播放」信息会被
+    /// 反复重设（暂停、拖动进度、切后台），每次都走网络会明显卡顿。
+    private var artworkCache: [String: MPMediaItemArtwork] = [:]
+    /// 封面请求序号：切歌后旧的封面回来不能覆盖新歌的封面
+    private var artworkToken = 0
+
     private init() {
         configureRemoteCommands()
+        observeInterruptions()
     }
 
     // MARK: - 播放控制
@@ -268,9 +276,51 @@ final class AudioPlayer: ObservableObject {
     private func configureAudioSession() {
         guard !audioSessionConfigured else { return }
         let session = AVAudioSession.sharedInstance()
+        // .playback：静音键拨下也照样出声，这是音乐 App 的基本预期。
+        // 配合 Info.plist 的 UIBackgroundModes=audio，切到后台才不会被挂起。
         try? session.setCategory(.playback, mode: .default, options: [])
         try? session.setActive(true)
         audioSessionConfigured = true
+    }
+
+    /// 来电、闹钟、其它 App 抢音频时系统会中断我们的会话。
+    /// 不处理的话表现为「放着放着没声了，点播放也没反应」——
+    /// 因为会话已失效，必须重新 setActive 才能继续。
+    private func observeInterruptions() {
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+            Task { @MainActor in
+                switch type {
+                case .began:
+                    // 被系统打断（来电等）：播放器已经停了，状态要跟上，
+                    // 否则界面还显示「暂停键」但没声音。
+                    self.isPlaying = false
+                    self.updateNowPlaying()
+                case .ended:
+                    let opts = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                    let shouldResume = AVAudioSession.InterruptionOptions(rawValue: opts).contains(.shouldResume)
+                    self.reactivateSession()
+                    if shouldResume, self.player != nil {
+                        self.player?.play()
+                        self.isPlaying = true
+                    }
+                    self.updateNowPlaying()
+                @unknown default:
+                    break
+                }
+            }
+        }
+    }
+
+    /// 重新激活音频会话。被中断后会话处于 inactive，
+    /// 直接 play() 是无效的，必须先 setActive(true)。
+    private func reactivateSession() {
+        try? AVAudioSession.sharedInstance().setActive(true)
     }
 
     private func configureRemoteCommands() {
@@ -299,14 +349,68 @@ final class AudioPlayer: ObservableObject {
 
     private func updateNowPlaying() {
         var info: [String: Any] = [:]
+        var missingArtwork = false
         if let song = currentSong {
             info[MPMediaItemPropertyTitle] = song.displayName
             info[MPMediaItemPropertyArtist] = song.artists ?? ""
             info[MPMediaItemPropertyAlbumTitle] = song.album ?? ""
+            if let art = artworkCache[song.id] {
+                info[MPMediaItemPropertyArtwork] = art
+            } else {
+                missingArtwork = true
+            }
         }
         if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
+        // PlaybackRate 决定锁屏卡的进度条自己走还是停住。
+        // 只给 1.0/0.0 是不够的：系统据此推算当前进度，
+        // 若和实际 elapsedTime 不匹配，卡片进度会跳。
         info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+
+        if missingArtwork { loadArtwork() }
+    }
+
+    /// 把专辑封面喂给「正在播放」。
+    ///
+    /// 为什么之前灵动岛/锁屏没有封面：`MPNowPlayingInfoCenter` 只认
+    /// `MPMediaItemPropertyArtwork` 这个键，给一个 URL 字符串它不理。
+    /// 系统不会自己去下载封面 —— 必须 App 自己取到 UIImage 再包成
+    /// MPMediaItemArtwork。这里和界面走同一条 `/api/img` 代理（带 Bearer），
+    /// 所以直接复用 ImageLoader 的缓存：界面刚显示过封面，这里立刻命中。
+    private func loadArtwork() {
+        guard let song = currentSong, let cover = song.cover, !cover.isEmpty else { return }
+        artworkToken += 1
+        let token = artworkToken
+        let songID = song.id
+
+        // 内存命中（界面已加载过这张封面）→ 零延迟直接设上
+        if let cached = ImageLoader.sharedCachedImage(for: cover) {
+            applyArtwork(cached, songID: songID, token: token)
+            return
+        }
+
+        let loader = ImageLoader()
+        loader.onImage = { [weak self] img in
+            Task { @MainActor in
+                self?.applyArtwork(img, songID: songID, token: token)
+            }
+        }
+        loader.load(remoteURL: cover)
+    }
+
+    private func applyArtwork(_ img: UIImage, songID: String, token: Int) {
+        // 切歌了：这张封面已作废，别把上一首的图贴到新歌上
+        guard token == artworkToken, currentSong?.id == songID else { return }
+        guard artworkCache[songID] == nil else { return }
+        let art = MPMediaItemArtwork(boundsSize: img.size) { _ in img }
+        artworkCache[songID] = art
+        if var info = MPNowPlayingInfoCenter.default().nowPlayingInfo {
+            info[MPMediaItemPropertyArtwork] = art
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        } else {
+            updateNowPlaying()
+        }
     }
 }

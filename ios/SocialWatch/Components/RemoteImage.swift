@@ -21,6 +21,14 @@ final class ImageLoader: ObservableObject {
     @Published private(set) var image: UIImage?
     @Published private(set) var failed = false
 
+    /// 图片到位的回调（主线程）。
+    ///
+    /// 为什么还要这个：`@Published image` 只对 SwiftUI 视图有意义，
+    /// 音频播放器这类非视图的调用方订阅不到 —— 它要的是「拿到 UIImage
+    /// 就去设锁屏封面」。给一个一次性回调比自己再写一套下载逻辑省事得多，
+    /// 而且能复用同一份内存/HTTP 缓存。
+    var onImage: ((UIImage) -> Void)?
+
     private var task: URLSessionDataTask?
     private let session: URLSession
 
@@ -50,6 +58,12 @@ final class ImageLoader: ObservableObject {
 
     deinit { task?.cancel() }
 
+    /// 只查内存缓存，不发起网络请求。给「正在播放」这类
+    /// 「有就用、没有就算了」的调用方做零延迟命中用。
+    static func sharedCachedImage(for remoteURL: String) -> UIImage? {
+        cache.object(forKey: ("img:" + remoteURL) as NSString)
+    }
+
     func load(itemID: Int, seq: Int, tier: ThumbTier) {
         let key = "\(itemID):\(seq):\(tier.rawValue)" as NSString
         guard let req = try? APIClient.shared.mediaRequest(itemID: itemID, seq: seq, tier: tier) else {
@@ -73,6 +87,7 @@ final class ImageLoader: ObservableObject {
         if let hit = ImageLoader.cache.object(forKey: key) {
             image = hit
             failed = false
+            onImage?(hit)
             return
         }
 
@@ -92,6 +107,7 @@ final class ImageLoader: ObservableObject {
                 DispatchQueue.main.async {
                     self.image = img
                     self.failed = false
+                    self.onImage?(img)
                 }
             }
         }

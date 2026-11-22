@@ -492,13 +492,20 @@ struct FullPlayerView: View {
 
     // MARK: 专辑封面
 
+    /// 封面用「按屏宽算、但有上下限」的方式定尺寸，而不是写死 300pt。
+    ///
+    /// 写死 300 的问题：iPhone SE（375×667）上它占了 45% 高度、把歌词区挤没；
+    /// 15/16 Pro Max 上又显得偏小、四周空一片。按屏宽 - 72（左右各留 36）
+    /// 推导，再夹在 200…340 之间，各种机型上比例都稳。
     private var cover: some View {
         GeometryReader { geo in
-            let side = min(geo.size.width - 72, geo.size.height)
+            let side = min(max(min(geo.size.width - 72, geo.size.height), 200), 340)
             ZStack {
                 if let song = player.currentSong {
                     AlbumArt(url: song.cover, size: side, corner: 16)
                         .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: 12)
+                } else {
+                    AlbumArt(url: nil, size: side, corner: 16)
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -528,35 +535,41 @@ struct FullPlayerView: View {
                     .font(.system(size: 12))
                     .foregroundColor(.red)
                     .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
                     .padding(.horizontal, 24)
             }
 
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 if let song = player.currentSong {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(song.displayName)
-                                .font(.system(size: 19, weight: .semibold))
-                                .lineLimit(1)
-                            Text(song.artists ?? "未知歌手")
-                                .font(.system(size: 13))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
+                    // 歌名/歌手必须居中：上一版是 HStack + Spacer 左对齐，
+                    // 整页其余元素（封面、歌词、按钮）都是居中的，
+                    // 只有这一块贴着左边，视觉上「整页没对齐」。
+                    VStack(spacing: 3) {
+                        Text(song.displayName)
+                            .font(.system(size: 19, weight: .semibold))
+                            .lineLimit(1)
+                            .multilineTextAlignment(.center)
+                        Text(song.artists ?? "未知歌手")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .multilineTextAlignment(.center)
                     }
+                    .frame(maxWidth: .infinity)
                 }
                 Slider(value: Binding(
                     get: { player.progress },
                     set: { player.progress = $0 }
                 ))
                 .disabled(player.duration <= 0)
+                .tint(Color(red: 0.82, green: 0.28, blue: 0.22))
                 HStack {
                     Text(formatTime(player.currentTime)).font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
-                    Spacer()
+                    Spacer(minLength: 12)
                     Text(formatTime(player.duration)).font(.system(size: 11, design: .monospaced)).foregroundColor(.secondary)
                 }
             }
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, 24)
 
             HStack(spacing: 44) {
@@ -590,8 +603,10 @@ struct FullPlayerView: View {
                 .frame(width: 44, height: 44)
             }
             .foregroundColor(.primary)
+            .frame(maxWidth: .infinity)
             .padding(.bottom, 8)
         }
+        .frame(maxWidth: .infinity)
         .padding(.bottom, 22)
     }
 
@@ -634,36 +649,43 @@ private struct LyricsView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 16) {
-                            // 上下各留一块空白，让首尾行也能滚到正中
-                            Color.clear.frame(height: 90)
-                            ForEach(Array(player.lyrics.enumerated()), id: \.element.id) { i, line in
-                                lyricRow(line, isCurrent: i == player.currentLyricIndex)
-                                    .id(i)
+                // 为什么要套 GeometryReader 拿显式宽度：
+                // 竖直 ScrollView 在 iOS 16 上对内容的宽度提案并不总是等于自身宽度，
+                // 内容一旦按「最宽那一行」收缩，整列就会贴在左边 ——
+                // 表现就是「歌词看着不居中」。给死宽度最稳，一行代码换掉一类玄学。
+                GeometryReader { geo in
+                    ScrollViewReader { proxy in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            VStack(spacing: 16) {
+                                // 上下各留一块空白，让首尾行也能滚到正中
+                                Color.clear.frame(height: 90)
+                                ForEach(Array(player.lyrics.enumerated()), id: \.element.id) { i, line in
+                                    lyricRow(line, isCurrent: i == player.currentLyricIndex, width: geo.size.width)
+                                        .id(i)
+                                }
+                                Color.clear.frame(height: 120)
                             }
-                            Color.clear.frame(height: 120)
+                            .frame(width: geo.size.width)
                         }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .onChange(of: player.currentLyricIndex) { idx in
-                        guard Date() >= followResumeAt else { return }
-                        guard idx >= 0, idx < player.lyrics.count else { return }
-                        withAnimation(.easeInOut(duration: 0.35)) {
-                            proxy.scrollTo(idx, anchor: .center)
+                        .frame(width: geo.size.width)
+                        .onChange(of: player.currentLyricIndex) { idx in
+                            guard Date() >= followResumeAt else { return }
+                            guard idx >= 0, idx < player.lyrics.count else { return }
+                            withAnimation(.easeInOut(duration: 0.35)) {
+                                proxy.scrollTo(idx, anchor: .center)
+                            }
                         }
-                    }
-                    // 用户一开始拖就暂停跟随，松手后 3 秒恢复
-                    .simultaneousGesture(
-                        DragGesture().onChanged { _ in
-                            followResumeAt = Date().addingTimeInterval(3)
-                        }
-                    )
-                    .onAppear {
-                        // 进来时立即对齐到当前行（不用等下一次进度回调）
-                        if player.currentLyricIndex >= 0 {
-                            proxy.scrollTo(player.currentLyricIndex, anchor: .center)
+                        // 用户一开始拖就暂停跟随，松手后 3 秒恢复
+                        .simultaneousGesture(
+                            DragGesture().onChanged { _ in
+                                followResumeAt = Date().addingTimeInterval(3)
+                            }
+                        )
+                        .onAppear {
+                            // 进来时立即对齐到当前行（不用等下一次进度回调）
+                            if player.currentLyricIndex >= 0 {
+                                proxy.scrollTo(player.currentLyricIndex, anchor: .center)
+                            }
                         }
                     }
                 }
@@ -671,10 +693,11 @@ private struct LyricsView: View {
         }
     }
 
-    private func lyricRow(_ line: LyricLine, isCurrent: Bool) -> some View {
-        VStack(spacing: 3) {
+    private func lyricRow(_ line: LyricLine, isCurrent: Bool, width: CGFloat) -> some View {
+        let size: CGFloat = isCurrent ? 17 : 15
+        return VStack(spacing: 3) {
             Text(line.text.isEmpty ? " " : line.text)
-                .font(.system(size: isCurrent ? 17 : 15, weight: isCurrent ? .semibold : .regular))
+                .font(.system(size: size, weight: isCurrent ? .semibold : .regular))
                 .foregroundColor(isCurrent ? .primary : Color.primary.opacity(0.45))
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
@@ -689,9 +712,11 @@ private struct LyricsView: View {
             }
         }
         .padding(.horizontal, 28)
-        .frame(maxWidth: .infinity)
-        // 当前行轻微放大，配合字号变化让"唱到这句"一眼可见
-        .scaleEffect(isCurrent ? 1.0 : 1.0)
+        // 关键：整行必须撑满「已知的屏宽」，不能是 maxWidth: .infinity。
+        // 竖直 ScrollView 对内容宽度的提案在 iOS 16 上并不总等于自身宽度，
+        // 内容一旦按最宽的某一行收缩，整列就会贴左 —— 看上去就是「歌词不居中」。
+        // 传死宽度后，每行都在同一把尺子上居中，长短行左边缘对齐。
+        .frame(width: width)
         .animation(.easeInOut(duration: 0.25), value: isCurrent)
     }
 }
