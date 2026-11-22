@@ -605,6 +605,174 @@ def probe_deleted(page, conn, target_key: str, platform: str = "weibo",
     return confirmed
 
 
+# ---------------------------------------------------------------- 抖音
+# 抖音图集接口（/aweme/v1/web/aweme/post/）每张图给 3 组 URL：
+#  - url_list                     ：q75 webp，实测 2880×2160 / 160KB，无水印
+#  - download_url_list            ：water-v2 水印档，同像素但更小（150KB），带水印
+#  - watermark_free_download_url_list：多数作品为空
+# 改模板后缀（noop / tplv-obj）会 403，所以 url_list 就是接口能给的最高画质。
+_DY_TIER_ORIGIN = "origin"
+_DY_TIER_FALLBACK = "download"
+_DY_REFERER = "https://www.douyin.com/"
+
+
+def collect_douyin(page, target_key: str, sec_uid: str, conn,
+                   media_root: Path, budget: dict | None = None,
+                   max_posts: int = 60) -> dict:
+    """翻页抓抖音作品（图集/视频），写进归档库。返回本轮统计。
+
+    抖音作品接口不需要登录态、不需要 a_bogus 签名：实测在 douyin.com 页面内
+    直接 fetch 相对路径 /aweme/v1/web/aweme/post/ 即返回 200 + aweme_list。
+    图文（aweme_type=68）的 images 给全图；视频帖只有封面，标 video=1。
+    """
+    if budget is None:
+        budget = {"media": MEDIA_BUDGET_PER_RUN}
+    stats = {"posts": 0, "new": 0, "media_saved": 0, "media_bytes": 0,
+             "hidden": 0, "pages": 0, "media_fallback": 0}
+
+    seen_ids: set[str] = set()
+    cursor = "0"
+    for _ in range(max_posts // 18 + 2):
+        try:
+            raw = page.evaluate(
+                """async ([sec, cursor]) => {
+                  const url = '/aweme/v1/web/aweme/post/?device_platform=webapp&aid=6383'
+                    + '&channel=channel_pc_web&sec_user_id=' + sec
+                    + '&max_cursor=' + cursor + '&count=18'
+                    + '&publish_video_strategy_type=2&version_code=170400'
+                    + '&version_name=17.4.0&cookie_enabled=true&platform=PC&downlink=10';
+                  const r = await fetch(url, {headers:{'accept':'application/json'},
+                                              credentials:'include'});
+                  return [r.status, await r.text()];
+                }""",
+                [sec_uid, cursor],
+            )
+        except Exception:  # noqa: BLE001
+            break
+        if not raw or raw[0] != 200:
+            break
+        try:
+            d = json.loads(raw[1])
+        except Exception:  # noqa: BLE001
+            break
+        if d.get("status_code") not in (0, None):
+            break
+        awemes = d.get("aweme_list") or []
+        if not awemes:
+            break
+        stats["pages"] += 1
+        for a in awemes:
+            pid = str(a.get("aweme_id") or "")
+            if not pid or pid in seen_ids:
+                continue
+            seen_ids.add(pid)
+            _ingest_douyin_one(page, conn, media_root, budget, stats,
+                               target_key, sec_uid, a, pid)
+        if len(seen_ids) >= max_posts or not d.get("has_more"):
+            break
+        cursor = str(d.get("max_cursor") or 0)
+        time.sleep(0.7)  # 翻页间隔，避免风控
+
+    stats["hidden"] = _mark_vanished(conn, target_key, "douyin", seen_ids)
+    return stats
+
+
+def _ingest_douyin_one(page, conn, media_root: Path, budget: dict, stats: dict,
+                       target_key: str, sec_uid: str, a: dict, pid: str) -> None:
+    """处理单条抖音作品：文案 → 图片/封面 → 落盘。"""
+    author = a.get("author") or {}
+    st = a.get("statistics") or {}
+    images = a.get("images") or []
+    video = a.get("video") or {}
+    is_album = bool(images) or a.get("aweme_type") == 68
+
+    post = {
+        "id": pid,
+        "text": a.get("desc") or "",
+        "text_raw": a.get("desc") or "",
+        "at": int(a.get("create_time") or 0) or None,
+        "url": f"https://www.douyin.com/video/{pid}",
+        "author_name": author.get("nickname"),
+        "likes": int(st.get("digg_count") or 0),
+        "comments_count": int(st.get("comment_count") or 0),
+        "reposts": int(st.get("share_count") or 0),
+        "images_total": len(images) if is_album else 1,
+        "video": not is_album,
+        "retweet": None,
+    }
+    existed = conn.execute(
+        "SELECT id FROM content WHERE target_key=? AND platform='douyin' AND post_id=?",
+        (target_key, pid),
+    ).fetchone()
+    cid = arc.upsert_content(conn, target_key, "douyin", post)
+    if not cid:
+        return
+    stats["posts"] += 1
+    if not existed:
+        stats["new"] += 1
+
+    # 图片候选：图集取 images[*]，视频帖取 video.cover。
+    # 每组优先 q75 无水印 url_list，download_url_list（带水印）兜底。
+    groups: list[tuple[list[str], int, int]] = []
+    if is_album:
+        for im in images:
+            cands = [u for u in (im.get("url_list") or []) if u]
+            cands += [u for u in (im.get("download_url_list") or []) if u]
+            groups.append((cands, int(im.get("width") or 0), int(im.get("height") or 0)))
+    else:
+        cover = video.get("cover") or video.get("cover_larger") or {}
+        cands = [u for u in (cover.get("url_list") or []) if u]
+        groups.append((cands, int(cover.get("width") or 0), int(cover.get("height") or 0)))
+
+    for seq, (cands, meta_w, meta_h) in enumerate(groups, start=1):
+        if not cands:
+            continue
+        already = conn.execute(
+            "SELECT local_path, remote_url, tier FROM content_media "
+            "WHERE content_id=? AND seq=?", (cid, seq),
+        ).fetchone()
+        has_file = bool(already and already["local_path"]
+                        and Path(already["local_path"]).exists())
+        if has_file:
+            # 图链带时效签名会过期，只刷新地址，不重下
+            conn.execute("UPDATE content_media SET remote_url=? WHERE content_id=? AND seq=?",
+                         (cands[0], cid, seq))
+            continue
+        if budget["media"] <= 0:
+            if not already:
+                arc.upsert_media(conn, cid, seq, cands[0], _DY_TIER_ORIGIN)
+            continue
+        data, used = _http_get_first(cands[:2], referer=_DY_REFERER, timeout=25)
+        if not data:
+            if not already:
+                arc.upsert_media(conn, cid, seq, cands[0], _DY_TIER_ORIGIN)
+            continue
+        origin = cands[0]
+        tier = (_DY_TIER_ORIGIN if used == origin else _DY_TIER_FALLBACK)
+        if tier == _DY_TIER_FALLBACK:
+            stats["media_fallback"] += 1
+        saved = arc.save_media(media_root, target_key, pid, seq, data)
+        # 像素以实际字节为准；解析不出来才用接口声明
+        w, h = _px_size(data)
+        if not (w and h):
+            w, h = meta_w, meta_h
+        conn.execute(
+            "INSERT INTO content_media(content_id, seq, remote_url, tier, local_path, "
+            "  bytes, width, height, sha256, fetched_at) VALUES(?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(content_id, seq) DO UPDATE SET "
+            "  remote_url=excluded.remote_url, tier=excluded.tier, "
+            "  local_path=excluded.local_path, bytes=excluded.bytes, "
+            "  width=excluded.width, height=excluded.height, "
+            "  sha256=excluded.sha256, fetched_at=excluded.fetched_at",
+            (cid, seq, used, tier, saved["local_path"], saved["bytes"],
+             w, h, saved["sha256"], int(time.time())),
+        )
+        budget["media"] -= 1
+        stats["media_saved"] += 1
+        stats["media_bytes"] += saved["bytes"]
+        time.sleep(0.2)
+
+
 # ---------------------------------------------------------------- 小红书
 def collect_xiaohongshu(page, target_key: str, uid: str, conn,
                         media_root: Path, budget: dict | None = None,

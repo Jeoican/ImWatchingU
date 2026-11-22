@@ -151,13 +151,13 @@ def check_one(store: Store, target: dict, browser_box: dict) -> tuple[str, str, 
 
 
 def _archive_content(target: dict, data: dict, br, opts: dict) -> str:
-    """把内容归档落库（微博 / 小红书）。抖音内容采集尚未实现。
+    """把内容归档落库（微博 / 抖音 / 小红书）。
 
     返回一句人类可读的统计，失败返回空串——归档是增强功能，
     绝不能因为它而让整轮巡检失败。
     """
     plat = target.get("platform")
-    if plat not in ("weibo", "xiaohongshu") or br is None:
+    if plat not in ("weibo", "douyin", "xiaohongshu") or br is None:
         return ""
     if not (opts.get("archive", True)):
         return ""
@@ -177,6 +177,15 @@ def _archive_content(target: dict, data: dict, br, opts: dict) -> str:
                 st = collector.collect_weibo(page, target_key, target["id"], conn,
                                              _cfg.archive_root())
                 dead = collector.probe_deleted(page, conn, target_key, "weibo")
+            elif plat == "douyin":
+                # 必须先落在 douyin.com 页面上下文，作品接口的 fetch 才带得上
+                # 站点 cookie / UA；用户主页本身也会被抖音风控校验。
+                page.goto(f"https://www.douyin.com/user/{target['id']}",
+                          wait_until="domcontentloaded", timeout=45000)
+                page.wait_for_timeout(2500)
+                st = collector.collect_douyin(page, target_key, target["id"], conn,
+                                              _cfg.archive_root())
+                dead = 0
             else:
                 st = collector.collect_xiaohongshu(page, target_key, target["id"],
                                                    conn, _cfg.archive_root())
