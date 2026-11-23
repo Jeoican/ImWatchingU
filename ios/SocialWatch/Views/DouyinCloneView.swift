@@ -338,6 +338,31 @@ private final class DouyinProfileHeaderView: UICollectionReusableView, UITextFie
     private var onShare: (() -> Void)?
     private var onSearch: ((String) -> Void)?
 
+    private static func stat(_ value: String, label: String) -> NSAttributedString {
+        let s = NSMutableAttributedString()
+        s.append(NSAttributedString(string: value, attributes: [
+            .font: UIFont.systemFont(ofSize: 16, weight: .semibold),
+            .foregroundColor: UIColor.white
+        ]))
+        s.append(NSAttributedString(string: " " + label, attributes: [
+            .font: UIFont.systemFont(ofSize: 11),
+            .foregroundColor: UIColor.white.withAlphaComponent(0.62)
+        ]))
+        return s
+    }
+
+    private static func tab(_ title: String, selected: Bool) -> NSAttributedString {
+        let s = NSMutableAttributedString(string: title + "  ", attributes: [
+            .font: UIFont.systemFont(ofSize: 14, weight: selected ? .semibold : .medium),
+            .foregroundColor: selected ? UIColor.white : UIColor.white.withAlphaComponent(0.55)
+        ])
+        s.append(NSAttributedString(string: "▾", attributes: [
+            .font: UIFont.systemFont(ofSize: 9),
+            .foregroundColor: selected ? UIColor.white : UIColor.white.withAlphaComponent(0.55)
+        ]))
+        return s
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         buildUI()
@@ -397,18 +422,12 @@ private final class DouyinProfileHeaderView: UICollectionReusableView, UITextFie
         idLabel.text = "抖音号：已归档账号"
         addSubview(idLabel)
 
-        let titles = ["获赞", "关注", "粉丝"]
+        // 真实抖音个人页：数值 + 标签同一行（如「1986.8万 获赞」），
+        // 数值加粗白色、标签灰色小字，整组居中。
         for i in 0..<3 {
-            statValues[i].font = .systemFont(ofSize: 16, weight: .semibold)
-            statValues[i].textColor = .white
             statValues[i].textAlignment = .center
-            statValues[i].text = "—"
-            statLabels[i].font = .systemFont(ofSize: 12)
-            statLabels[i].textColor = UIColor.white.withAlphaComponent(0.55)
-            statLabels[i].textAlignment = .center
-            statLabels[i].text = titles[i]
+            statValues[i].attributedText = Self.stat("—", label: ["获赞", "关注", "粉丝"][i])
             addSubview(statValues[i])
-            addSubview(statLabels[i])
         }
 
         signatureLabel.font = .systemFont(ofSize: 13)
@@ -462,11 +481,10 @@ private final class DouyinProfileHeaderView: UICollectionReusableView, UITextFie
         nameLabel.frame = CGRect(x: 100, y: safeTop + 74, width: w - 116, height: 24)
         idLabel.frame = CGRect(x: 100, y: safeTop + 103, width: w - 116, height: 18)
 
-        let statY = safeTop + 194
+        let statY = safeTop + 192
         let colW = w / 3
         for i in 0..<3 {
-            statValues[i].frame = CGRect(x: CGFloat(i) * colW, y: statY, width: colW, height: 20)
-            statLabels[i].frame = CGRect(x: CGFloat(i) * colW, y: statY + 22, width: colW, height: 16)
+            statValues[i].frame = CGRect(x: CGFloat(i) * colW, y: statY, width: colW, height: 24)
         }
 
         signatureLabel.frame = CGRect(x: 16, y: safeTop + 244, width: w - 32, height: 18)
@@ -499,14 +517,17 @@ private final class DouyinProfileHeaderView: UICollectionReusableView, UITextFie
         signatureLabel.text = detail?.signature ?? "已归档图文与音乐作品"
 
         let totalLikes = items.reduce(0) { $0 + max(0, $1.likes ?? 0) }
-        statValues[0].text = swNumber(detail?.playCount ?? totalLikes)
-        statValues[1].text = detail?.followingCount.map(swNumber) ?? "—"
-        statValues[2].text = detail?.followerCount.map(swNumber) ?? "—"
+        let values = [swNumber(detail?.playCount ?? totalLikes),
+                      detail?.followingCount.map(swNumber) ?? "—",
+                      detail?.followerCount.map(swNumber) ?? "—"]
+        let labels = ["获赞", "关注", "粉丝"]
+        for i in 0..<3 {
+            statValues[i].attributedText = Self.stat(values[i], label: labels[i])
+        }
 
         let works = items.count
-        let imageWorks = items.filter { $0.mediaTotal > 1 }.count
-        tabs[0].text = "作品 \(works)"
-        tabs[1].text = "图文 \(imageWorks)"
+        tabs[0].attributedText = Self.tab("作品 \(works)", selected: true)
+        tabs[1].attributedText = Self.tab("图文 \(items.filter { $0.mediaTotal > 1 }.count)", selected: false)
         if avatarImageView.image == nil {
             avatarImageView.image = Self.placeholder(letter: author)
         }
@@ -586,7 +607,8 @@ private final class DouyinWorkCell: UICollectionViewCell {
         super.layoutSubviews()
         imageView.frame = contentView.bounds
         shade.frame = CGRect(x: 0, y: bounds.height - 34, width: bounds.width, height: 34)
-        tagLabel.frame = CGRect(x: 5, y: 5, width: min(bounds.width - 10, 58), height: 16)
+        let tagW = min(bounds.width - 10, 58)
+        tagLabel.frame = CGRect(x: bounds.width - tagW - 5, y: 5, width: tagW, height: 16)
         countLabel.frame = CGRect(x: 6, y: bounds.height - 22, width: bounds.width - 12, height: 16)
     }
 
@@ -732,6 +754,11 @@ private final class DouyinPlayerPageVC: UIViewController,
     private let progressFill = UIView()
     private let likeBurst = UIImageView()
 
+    // 底部抖音 TabBar（首页 / 朋友 / + / 消息 / 我）
+    private let bottomTabBar = UIView()
+    private var tabButtons: [UIButton] = []
+    private let plusButton = UIButton(type: .system)
+
     private let avatarLoader = ImageLoader()
     private let discCoverLoader = ImageLoader()
     private var detail: ArchiveDetail?
@@ -769,9 +796,19 @@ private final class DouyinPlayerPageVC: UIViewController,
         backButton.frame = CGRect(x: 12, y: safeTop + 8, width: 36, height: 36)
         searchButton.frame = CGRect(x: 56, y: safeTop + 8, width: max(0, w - 110), height: 36)
 
-        let infoH: CGFloat = 220
-        let infoTop = h - safeBottom - infoH
-        bottomShade.frame = CGRect(x: 0, y: infoTop, width: w, height: infoH + safeBottom)
+        // 底部 TabBar 固定 49pt + 安全区，信息区锚点改为 TabBar 顶部
+        let tabH: CGFloat = 49
+        let tabTop = h - safeBottom - tabH
+        bottomTabBar.frame = CGRect(x: 0, y: tabTop, width: w, height: tabH + safeBottom)
+        let slotW = w / 5
+        for (i, btn) in tabButtons.enumerated() {
+            btn.frame = CGRect(x: CGFloat(i) * slotW, y: 0, width: slotW, height: tabH)
+        }
+        plusButton.frame = CGRect(x: w / 2 - 22, y: 8, width: 44, height: 32)
+
+        let infoH: CGFloat = 190
+        let infoTop = tabTop - infoH
+        bottomShade.frame = CGRect(x: 0, y: infoTop, width: w, height: infoH)
         bottomShade.layer.sublayers?.compactMap { $0 as? CAGradientLayer }.forEach {
             $0.frame = bottomShade.bounds
         }
@@ -803,17 +840,19 @@ private final class DouyinPlayerPageVC: UIViewController,
 
         let left: CGFloat = 16
         let rightW: CGFloat = w - 84 - left
-        let musicY = h - safeBottom - 34
+        // 音乐行贴底，但和 TabBar 顶边的进度条留出 6pt 呼吸空间
+        let musicY = tabTop - 34
         musicLabel.frame = CGRect(x: left, y: musicY, width: rightW, height: 18)
 
-        pageBars.frame = CGRect(x: left, y: musicY - 22, width: min(rightW, 140), height: 10)
+        pageBars.frame = CGRect(x: left, y: musicY - 20, width: min(rightW, 140), height: 6)
         textLabel.preferredMaxLayoutWidth = rightW
         let textH = min(68, textLabel.sizeThatFits(CGSize(width: rightW, height: .greatestFiniteMagnitude)).height)
-        let textY = musicY - 32 - textH
+        let textY = musicY - 30 - textH
         textLabel.frame = CGRect(x: left, y: textY, width: rightW, height: textH)
         nameLabel.frame = CGRect(x: left, y: textY - 28, width: rightW, height: 22)
 
-        progressTrack.frame = CGRect(x: 0, y: h - 2, width: w, height: 2)
+        // 进度条贴 TabBar 顶边（真实抖音：TabBar 上方一条细线）
+        progressTrack.frame = CGRect(x: 0, y: tabTop - 1.5, width: w, height: 1.5)
         updateProgress()
     }
 
@@ -970,9 +1009,12 @@ private final class DouyinPlayerPageVC: UIViewController,
         likeBurst.alpha = 0
         view.addSubview(likeBurst)
 
+        buildBottomTabBar()
+
         controlViews = [topShade, bottomShade, backButton, searchButton, railAvatar, followBadge,
                         likeIcon, likeCount, commentIcon, commentCount, favoriteIcon, favoriteCount,
-                        shareIcon, shareCount, discView, discHole, musicLabel, progressTrack]
+                        shareIcon, shareCount, discView, discHole, musicLabel, progressTrack,
+                        bottomTabBar]
 
         singleTap.addTarget(self, action: #selector(singleTapped))
         singleTap.delegate = self
@@ -985,6 +1027,64 @@ private final class DouyinPlayerPageVC: UIViewController,
         doubleTap.delegate = self
         singleTap.require(toFail: doubleTap)
         view.addGestureRecognizer(doubleTap)
+    }
+
+    private func buildBottomTabBar() {
+        bottomTabBar.backgroundColor = UIColor(red: 0.09, green: 0.09, blue: 0.11, alpha: 0.96)
+        let line = UIView()
+        line.backgroundColor = UIColor.white.withAlphaComponent(0.08)
+        line.translatesAutoresizingMaskIntoConstraints = false
+        bottomTabBar.addSubview(line)
+        NSLayoutConstraint.activate([
+            line.topAnchor.constraint(equalTo: bottomTabBar.topAnchor),
+            line.leadingAnchor.constraint(equalTo: bottomTabBar.leadingAnchor),
+            line.trailingAnchor.constraint(equalTo: bottomTabBar.trailingAnchor),
+            line.heightAnchor.constraint(equalToConstant: 0.5)
+        ])
+        view.addSubview(bottomTabBar)
+
+        let specs: [(String, String)] = [
+            ("house.fill", "首页"),
+            ("person.2.fill", "朋友"),
+            ("", ""),
+            ("bubble.right.fill", "消息"),
+            ("person.fill", "我")
+        ]
+        for (i, spec) in specs.enumerated() {
+            let btn = UIButton(type: .system)
+            if i == 2 {
+                btn.isUserInteractionEnabled = false
+            } else {
+                var cfg = UIButton.Configuration.plain()
+                cfg.image = UIImage(systemName: spec.0)
+                cfg.title = spec.1
+                cfg.imagePlacement = .top
+                cfg.imagePadding = 3
+                cfg.baseForegroundColor = UIColor.white.withAlphaComponent(0.62)
+                cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                    var out = incoming
+                    out.font = UIFont.systemFont(ofSize: 10)
+                    return out
+                }
+                btn.configuration = cfg
+                btn.tag = i
+                btn.addTarget(self, action: #selector(tabTapped(_:)), for: .touchUpInside)
+            }
+            tabButtons.append(btn)
+            bottomTabBar.addSubview(btn)
+        }
+
+        plusButton.backgroundColor = .white
+        plusButton.tintColor = UIColor(red: 0.09, green: 0.09, blue: 0.11, alpha: 1)
+        plusButton.setImage(UIImage(systemName: "plus"), for: .normal)
+        plusButton.layer.cornerRadius = 8
+        plusButton.isUserInteractionEnabled = false
+        bottomTabBar.addSubview(plusButton)
+    }
+
+    @objc private func tabTapped(_ sender: UIButton) {
+        // 首页 / 我 回到个人页；朋友 / 消息暂无数据，保持当前页
+        if sender.tag == 0 || sender.tag == 4 { onDismiss?() }
     }
 
     private func applyBottomGradient() {
