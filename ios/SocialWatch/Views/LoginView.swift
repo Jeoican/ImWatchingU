@@ -233,6 +233,16 @@ struct LockView: View {
         guard !isEvaluating else { return }
         message = ""
 
+        #if DEBUG
+        // 模拟器自动化时即使 LockView 因状态刷新短暂出现，也不要弹系统密码框：
+        // 它会盖住整个屏幕且无法用 simctl 关闭，导致截图验证全部失效。
+        if ProcessInfo.processInfo.environment["SW_SKIP_LOCK"] == "1"
+            || UserDefaults.standard.bool(forKey: "sw_debug_skip_lock") {
+            session.isUnlocked = true
+            return
+        }
+        #endif
+
         let ctx = LAContext()
         var err: NSError?
 

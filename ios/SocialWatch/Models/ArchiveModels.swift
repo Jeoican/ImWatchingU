@@ -85,6 +85,18 @@ struct ArchiveItem: Codable, Identifiable, Sendable, Equatable {
     let mediaCount: Int?
     let savedCommentCount: Int?
 
+    // 抖音个人页/作品页字段。后端尚未全部提供，全部宽松解码为 nil，
+    // 老数据不会因为新增字段而失败；UI 侧没有值时显示占位而不是伪造。
+    let authorName: String?
+    let authorAvatar: String?
+    let douyinID: String?
+    let signature: String?
+    let followingCount: Int?
+    let followerCount: Int?
+    let playCount: Int?
+    let collectCount: Int?
+    let shareCount: Int?
+
     enum CodingKeys: String, CodingKey {
         case id
         case postId = "post_id"
@@ -105,6 +117,15 @@ struct ArchiveItem: Codable, Identifiable, Sendable, Equatable {
         case video
         case mediaCount = "media_count"
         case savedCommentCount = "saved_comment_count"
+        case authorName = "author_name"
+        case authorAvatar = "author_avatar"
+        case douyinID = "douyin_id"
+        case signature
+        case followingCount = "following_count"
+        case followerCount = "follower_count"
+        case playCount = "play_count"
+        case collectCount = "collect_count"
+        case shareCount = "share_count"
     }
 
     var postedDate: Date { Date(timeIntervalSince1970: TimeInterval(postedAt)) }
@@ -243,6 +264,14 @@ struct ArchiveDetail: Codable, Sendable {
     let authorName: String?
     /// 作者头像 URL（后端从账号快照取），可能为 nil → 降级显示昵称首字。
     let authorAvatar: String?
+    /// 抖音账号信息。后端尚未全部提供，宽松解码为 nil。
+    let douyinID: String?
+    let signature: String?
+    let followingCount: Int?
+    let followerCount: Int?
+    let playCount: Int?
+    let collectCount: Int?
+    let shareCount: Int?
     let targetKey: String?
     let platform: Platform?
     let postedAt: Int
@@ -271,6 +300,13 @@ struct ArchiveDetail: Codable, Sendable {
         case textRaw = "text_raw"
         case authorName = "author_name"
         case authorAvatar = "author_avatar"
+        case douyinID = "douyin_id"
+        case signature
+        case followingCount = "following_count"
+        case followerCount = "follower_count"
+        case playCount = "play_count"
+        case collectCount = "collect_count"
+        case shareCount = "share_count"
         case targetKey = "target_key"
         case platform
         case postedAt = "posted_at"
@@ -298,6 +334,13 @@ struct ArchiveDetail: Codable, Sendable {
         textRaw = try c.decodeIfPresent(String.self, forKey: .textRaw)
         authorName = try c.decodeIfPresent(String.self, forKey: .authorName)
         authorAvatar = try c.decodeIfPresent(String.self, forKey: .authorAvatar)
+        douyinID = try c.decodeIfPresent(String.self, forKey: .douyinID)
+        signature = try c.decodeIfPresent(String.self, forKey: .signature)
+        followingCount = try c.decodeIfPresent(Int.self, forKey: .followingCount)
+        followerCount = try c.decodeIfPresent(Int.self, forKey: .followerCount)
+        playCount = try c.decodeIfPresent(Int.self, forKey: .playCount)
+        collectCount = try c.decodeIfPresent(Int.self, forKey: .collectCount)
+        shareCount = try c.decodeIfPresent(Int.self, forKey: .shareCount)
         targetKey = try c.decodeIfPresent(String.self, forKey: .targetKey)
         platform = try c.decodeIfPresent(Platform.self, forKey: .platform)
         postedAt = try c.decodeIfPresent(Int.self, forKey: .postedAt) ?? 0

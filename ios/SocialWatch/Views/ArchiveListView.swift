@@ -45,20 +45,27 @@ struct ArchiveListView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // 标签栏固定在外层，不参与任何滚动，永远不会被列表内容挤变形。
-                sourceTabBar
+                // 抖音页要 1:1 复刻，隐藏内容库的外层标签栏和导航栏。
+                if sourceFilter != .douyin {
+                    sourceTabBar
+                }
 
                 TabView(selection: tabSelection) {
                     ForEach(SourceFilter.allCases) { f in
                         // 标签栏按顺序排列，页面也按顺序排列，滑动方向与标签一致。
-                        ArchiveSourcePage(source: f, filter: filter)
-                            .tag(f)
+                        ArchiveSourcePage(source: f, filter: filter) {
+                            sourceFilter = .all
+                        }
+                        .tag(f)
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
             .navigationTitle("内容库")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationBarHidden(sourceFilter == .douyin)
+            .toolbar(sourceFilter == .douyin ? .hidden : .automatic, for: .tabBar)
+            .ignoresSafeArea(edges: sourceFilter == .douyin ? [.top, .bottom] : [])
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
@@ -128,6 +135,7 @@ struct ArchiveListView: View {
 private struct ArchiveSourcePage: View {
     let source: SourceFilter
     let filter: StateFilter
+    let onExitDouyin: () -> Void
 
     @State private var items: [ArchiveItem] = []
     @State private var stats: [String: TargetStats] = [:]
@@ -161,22 +169,12 @@ private struct ArchiveSourcePage: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.white)
                 } else {
-                    #if DEBUG
-                    // 模拟器无法注入点击：直接进沉浸式页核对播放样式。
-                    if ProcessInfo.processInfo.environment["SW_DEBUG_FEEDONLY"] == "1" {
-                        DouyinFeedView(items: items, hasMore: hasMore,
-                                       loadMore: { load(page: false) },
-                                       onDismiss: nil, onSearch: nil)
-                    } else {
-                        DouyinProfileView(items: items, hasMore: hasMore) {
-                            load(page: false)
-                        }
-                    }
-                    #else
-                    DouyinProfileView(items: items, hasMore: hasMore) {
-                        load(page: false)
-                    }
-                    #endif
+                    DouyinCloneView(
+                        items: items,
+                        hasMore: hasMore,
+                        loadMore: { load(page: false) },
+                        onExit: onExitDouyin
+                    )
                 }
             } else if source == .netease {
                 List { neteaseSections }

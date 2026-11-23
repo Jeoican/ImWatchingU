@@ -353,17 +353,36 @@ private struct DouyinGridTile: View {
 final class FeedMusicPlayer {
     static let shared = FeedMusicPlayer()
 
-    private var player: AVPlayer?
+    private(set) var player: AVPlayer?
     private var loopObserver: NSObjectProtocol?
     private var currentItemID: Int?
 
     /// 当前是否在播（给转盘状态用）
     private(set) var isPlaying = false
 
+    /// 播放进度 0...1。新抖音播放页底部进度条用；没有可播放 item 时为 0。
+    var progress: Double {
+        guard let item = player?.currentItem,
+              item.status == .readyToPlay,
+              item.duration.isValid,
+              item.duration.seconds.isFinite,
+              item.duration.seconds > 0 else { return 0 }
+        let current = item.currentTime().seconds
+        guard current.isFinite, current >= 0 else { return 0 }
+        return min(1, max(0, current / item.duration.seconds))
+    }
+
     func play(itemID: Int) {
+        if currentItemID == itemID, player != nil {
+            // 同一条作品只是暂停过：直接恢复，不重新下载、不从 0 秒开始。
+            if !isPlaying {
+                player?.play()
+                isPlaying = true
+            }
+            return
+        }
         guard let url = try? APIClient.shared.audioURL(itemID: itemID),
               let token = APIClient.bearerToken(), !token.isEmpty else { return }
-        if currentItemID == itemID, player != nil, isPlaying { return }
         stop()
 
         // AVURLAsset 本身不支持自定义 header，iOS 通过 AVAssetResourceLoader
